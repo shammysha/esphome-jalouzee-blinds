@@ -13,6 +13,12 @@ DEPENDENCIES = [
     "cover",
 ]
 
+AUTO_LOAD = [
+    "button",
+    "sensor",
+    "binary_sensor",
+    "select",
+]
 
 jalouzee_blinds_ns = cg.esphome_ns.namespace(
     "jalouzee_blinds"
@@ -24,14 +30,6 @@ JalouzeeBlinds = jalouzee_blinds_ns.class_(
     cover.Cover,
     cg.Component,
 )
-
-
-AUTO_LOAD = [
-    "button",
-    "sensor",
-    "binary_sensor",
-    "select",
-]
 
 CONF_OPEN_PIN = "open_pin"
 CONF_CLOSE_PIN = "close_pin"
