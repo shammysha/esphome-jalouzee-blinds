@@ -23,9 +23,6 @@ JalouzeeBlinds = jalouzee_blinds_ns.class_(
     "JalouzeeBlinds",
     cover.Cover,
     cg.Component,
-    includes=[
-        "jalouzee_blinds.h",
-    ],
 )
 
 

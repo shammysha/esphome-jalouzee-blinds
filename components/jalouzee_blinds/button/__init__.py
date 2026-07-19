@@ -13,9 +13,6 @@ CONF_ACTION = "action"
 JalouzeeButton = jalouzee_blinds_ns.class_(
     "JalouzeeButton",
     button.Button,
-    includes=[
-        "entities.h",
-    ],    
 )
 
 

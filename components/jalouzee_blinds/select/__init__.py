@@ -12,9 +12,6 @@ CONF_PARENT = "parent"
 AngleSourceSelect = jalouzee_blinds_ns.class_(
     "AngleSourceSelect",
     select.Select,
-    includes=[
-        "entities.h",
-    ],    
 )
 
 
