@@ -105,7 +105,7 @@ CONFIG_SCHEMA = (
 
             cv.Optional(CONF_ANGLE_SOURCE):
                 cv.use_id(
-                    AngleSourceSelect
+                    select.Select
                 ),
 
         }
