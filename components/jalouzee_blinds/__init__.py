@@ -43,7 +43,6 @@ JalouzeeBlinds = jalouzee_blinds_ns.class_(
     "JalouzeeBlinds",
     cover.Cover,
     cg.Component,
-    is_class=True,
 )
 
 JalouzeeButton = jalouzee_blinds_ns.class_(
