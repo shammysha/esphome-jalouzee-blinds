@@ -5,22 +5,19 @@ from esphome.components import binary_sensor
 
 from .. import JalouzeeBlinds
 
-
 CONF_PARENT = "parent"
 CONF_TYPE = "type"
-
 
 CONFIG_SCHEMA = binary_sensor.binary_sensor_schema().extend(
     {
         cv.Required(CONF_PARENT):
             cv.use_id(JalouzeeBlinds),
 
-
         cv.Required(CONF_TYPE):
             cv.enum(
                 {
-                    "fault",
-                    "calibrated",
+                    "fault": "fault",
+                    "calibrated": "calibrated",
                 },
                 lower=True
             ),
@@ -34,11 +31,9 @@ async def to_code(config):
         config[CONF_PARENT]
     )
 
-
     bs = await binary_sensor.new_binary_sensor(
         config
     )
-
 
     if config[CONF_TYPE] == "fault":
 
@@ -47,7 +42,6 @@ async def to_code(config):
                 bs
             )
         )
-
 
     elif config[CONF_TYPE] == "calibrated":
 
