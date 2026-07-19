@@ -33,6 +33,12 @@ CONF_STALL_TIMEOUT = "stall_timeout"
 
 CONF_ENTITIES = "entities"
 CONF_BUTTONS = "buttons"
+BUTTON_ACTIONS = [
+    "calibrate", 
+    "clear_fault"
+]
+
+
 CONF_ANGLE_SOURCE = "angle_source"
 
 jalouzee_blinds_ns = cg.esphome_ns.namespace(
@@ -67,7 +73,7 @@ CONFIG_SCHEMA = (
 
             cv.Optional(
                 CONF_STALL_TIMEOUT,
-                default="10s"
+                default="3s"
             ):
                 cv.positive_time_period_milliseconds,
 
