@@ -1540,5 +1540,58 @@ AngleSource JalouzeeBlinds::angle_source() const
 }
 
 
+void JalouzeeBlinds::create_entities(
+    bool angle,
+    bool position,
+    bool fault,
+    bool calibrated
+)
+{
+
+  if(angle)
+  {
+    angle_output_ =
+        new sensor::Sensor();
+
+    angle_output_->set_name(
+        "Angle"
+    );
+  }
+
+
+  if(position)
+  {
+    position_output_ =
+        new sensor::Sensor();
+
+    position_output_->set_name(
+        "Position"
+    );
+  }
+
+
+  if(fault)
+  {
+    fault_output_ =
+        new binary_sensor::BinarySensor();
+
+    fault_output_->set_name(
+        "Fault"
+    );
+  }
+
+
+  if(calibrated)
+  {
+    calibrated_output_ =
+        new binary_sensor::BinarySensor();
+
+    calibrated_output_->set_name(
+        "Calibrated"
+    );
+  }
+
+}
+
 }  // namespace jalouzee_blinds
 }  // namespace esphome

@@ -1,115 +1,66 @@
 #pragma once
 
-
 #include "esphome/core/component.h"
 
 #include "esphome/components/button/button.h"
 #include "esphome/components/select/select.h"
 
-
 #include "jalouzee_blinds.h"
 
-
-
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
-class JalouzeeBlinds;
+    class JalouzeeBlinds;
 
-class JalouzeeButton :
-    public button::Button
-{
+    class JalouzeeButton: public button::Button {
 
+      public:
 
- public:
+        enum class Action : uint8_t {
 
+          START_CALIBRATION,
 
-  enum class Action : uint8_t {
+          SAVE_CLOSED,
 
-    START_CALIBRATION,
+          SAVE_OPEN,
 
-    SAVE_CLOSED,
+          CLEAR_FAULT
 
-    SAVE_OPEN,
+        };
 
-    CLEAR_FAULT
+        void set_parent(JalouzeeBlinds *parent);
 
-  };
+        void set_action(Action action);
 
+      protected:
 
+        void press_action() override;
 
-  void set_parent(
-      JalouzeeBlinds *parent
-  );
+      protected:
 
+        JalouzeeBlinds *parent_ { nullptr };
 
-  void set_action(
-      Action action
-  );
+        Action action_ { Action::START_CALIBRATION };
 
+    };
 
- protected:
+    class AngleSourceSelect: public select::Select {
 
+      public:
 
-  void press_action() override;
+        void set_parent(JalouzeeBlinds *parent);
 
+        void setup() override;
 
+      protected:
 
- protected:
+        void control(const std::string &value) override;
 
+      protected:
 
-  JalouzeeBlinds *parent_{nullptr};
+        JalouzeeBlinds *parent_ { nullptr };
 
+    };
 
-  Action action_{
-      Action::START_CALIBRATION
-  };
-
-};
-
-
-
-
-
-
-
-
-class AngleSourceSelect :
-    public select::Select
-{
-
-
- public:
-
-
-  void set_parent(
-      JalouzeeBlinds *parent
-  );
-
-
-
-  void setup() override;
-
-
- protected:
-
-
-  void control(
-      const std::string &value
-  ) override;
-
-
-
- protected:
-
-
-  JalouzeeBlinds *parent_{nullptr};
-
-};
-
-
-
-
-
-} // namespace jalouzee_blinds
+  } // namespace jalouzee_blinds
 } // namespace esphome

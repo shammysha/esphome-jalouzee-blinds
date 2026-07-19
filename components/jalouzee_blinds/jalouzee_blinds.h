@@ -340,13 +340,17 @@ class JalouzeeBlinds :
 
 
   sensor::Sensor *angle_output_{nullptr};
-
   sensor::Sensor *position_output_{nullptr};
 
-
   binary_sensor::BinarySensor *fault_output_{nullptr};
-
   binary_sensor::BinarySensor *calibrated_output_{nullptr};
+
+  void create_entities(
+      bool angle,
+      bool position,
+      bool fault,
+      bool calibrated
+  );
 
 
 };
