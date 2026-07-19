@@ -12,11 +12,9 @@ from esphome.components import (
 from esphome import pins
 from esphome.const import CONF_ID
 
-
 DEPENDENCIES = [
     "cover",
 ]
-
 
 AUTO_LOAD = [
     "sensor",
@@ -24,7 +22,6 @@ AUTO_LOAD = [
     "button",
     "select",
 ]
-
 
 CONF_OPEN_PIN = "open_pin"
 CONF_CLOSE_PIN = "close_pin"
@@ -34,52 +31,34 @@ CONF_SECONDARY_SENSOR = "secondary_sensor"
 
 CONF_STALL_TIMEOUT = "stall_timeout"
 
-
 CONF_ENTITIES = "entities"
 CONF_BUTTONS = "buttons"
 CONF_ANGLE_SOURCE = "angle_source"
 
-
 jalouzee_blinds_ns = cg.esphome_ns.namespace(
     "jalouzee_blinds"
 )
-
 
 JalouzeeBlinds = jalouzee_blinds_ns.class_(
     "JalouzeeBlinds",
     cover.Cover,
     cg.Component,
     is_class=True,
-    includes=[
-        "jalouzee_blinds.h",
-    ],
 )
-
-
 
 JalouzeeButton = jalouzee_blinds_ns.class_(
     "JalouzeeButton",
     button.Button,
-    includes=[
-        "entities.h",
-    ],
 )
-
 
 AngleSourceSelect = jalouzee_blinds_ns.class_(
     "AngleSourceSelect",
     select.Select,
-    includes=[
-        "entities.h",
-    ],
 )
-
 
 ButtonAction = JalouzeeButton.enum(
     "Action"
 )
-
-
 
 BUTTON_ACTIONS = {
 
@@ -97,8 +76,6 @@ BUTTON_ACTIONS = {
 
 }
 
-
-
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -107,30 +84,23 @@ CONFIG_SCHEMA = (
                     JalouzeeBlinds
                 ),
 
-
             cv.Required(CONF_OPEN_PIN):
                 pins.gpio_output_pin_schema,
-
 
             cv.Required(CONF_CLOSE_PIN):
                 pins.gpio_output_pin_schema,
 
-
             cv.Optional(CONF_PRIMARY_SENSOR):
                 cv.use_id(sensor.Sensor),
 
-
             cv.Optional(CONF_SECONDARY_SENSOR):
                 cv.use_id(sensor.Sensor),
-
 
             cv.Optional(
                 CONF_STALL_TIMEOUT,
                 default="10s"
             ):
                 cv.positive_time_period_milliseconds,
-
-
 
             cv.Optional(CONF_ENTITIES):
                 cv.Schema(
@@ -149,8 +119,6 @@ CONFIG_SCHEMA = (
                     }
                 ),
 
-
-
             cv.Optional(CONF_BUTTONS):
                 cv.Schema(
                     {
@@ -159,8 +127,6 @@ CONFIG_SCHEMA = (
                         for name in BUTTON_ACTIONS
                     }
                 ),
-
-
 
             cv.Optional(CONF_ANGLE_SOURCE):
                 cv.use_id(
@@ -176,26 +142,22 @@ CONFIG_SCHEMA = (
     )
 )
 
-async def to_code(config):
 
+async def to_code(config):
 
     var = cg.new_Pvariable(
         config[CONF_ID]
     )
-
 
     await cg.register_component(
         var,
         config
     )
 
-
     await cover.register_cover(
         var,
         config
     )
-
-
 
     #
     # Motor GPIO
@@ -205,11 +167,9 @@ async def to_code(config):
         config[CONF_OPEN_PIN]
     )
 
-
     close_pin = await cg.gpio_pin_expression(
         config[CONF_CLOSE_PIN]
     )
-
 
     cg.add(
         var.set_motor_pins(
@@ -217,8 +177,6 @@ async def to_code(config):
             close_pin
         )
     )
-
-
 
     #
     # Angle sensors
@@ -230,14 +188,11 @@ async def to_code(config):
             config[CONF_PRIMARY_SENSOR]
         )
 
-
         cg.add(
             var.set_primary_sensor(
                 primary
             )
         )
-
-
 
     if CONF_SECONDARY_SENSOR in config:
 
@@ -245,14 +200,11 @@ async def to_code(config):
             config[CONF_SECONDARY_SENSOR]
         )
 
-
         cg.add(
             var.set_secondary_sensor(
                 secondary
             )
         )
-
-
 
     #
     # Stall timeout
@@ -264,8 +216,6 @@ async def to_code(config):
         )
     )
 
-
-
     #
     # Internal entities
     #
@@ -274,8 +224,6 @@ async def to_code(config):
         CONF_ENTITIES,
         {}
     )
-
-
 
     if entities.get(
         "angle",
@@ -289,14 +237,11 @@ async def to_code(config):
             }
         )
 
-
         cg.add(
             var.set_angle_output(
                 sens
             )
         )
-
-
 
     if entities.get(
         "position",
@@ -310,14 +255,11 @@ async def to_code(config):
             }
         )
 
-
         cg.add(
             var.set_position_output(
                 sens
             )
         )
-
-
 
     if entities.get(
         "fault",
@@ -331,14 +273,11 @@ async def to_code(config):
             }
         )
 
-
         cg.add(
             var.set_fault_output(
                 bsens
             )
         )
-
-
 
     if entities.get(
         "calibrated",
@@ -352,14 +291,11 @@ async def to_code(config):
             }
         )
 
-
         cg.add(
             var.set_calibrated_output(
                 bsens
             )
         )
-
-
 
     #
     # Buttons
@@ -370,15 +306,12 @@ async def to_code(config):
         {}
     )
 
-
     for name, action in BUTTON_ACTIONS.items():
-
 
         if buttons.get(
             name,
             False
         ):
-
 
             btn = await button.new_button(
                 {
@@ -390,13 +323,11 @@ async def to_code(config):
                 }
             )
 
-
             cg.add(
                 btn.set_parent(
                     var
                 )
             )
-
 
             cg.add(
                 btn.set_action(
@@ -404,14 +335,11 @@ async def to_code(config):
                 )
             )
 
-
-
     #
     # Angle source select
     #
 
     if CONF_ANGLE_SOURCE in config:
-
 
         select = await select.new_select(
             {
@@ -419,7 +347,6 @@ async def to_code(config):
                     "Angle Source"
             }
         )
-
 
         cg.add(
             select.set_parent(
