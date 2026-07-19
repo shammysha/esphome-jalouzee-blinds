@@ -1,0 +1,51 @@
+external_components:
+
+  - source:
+      type: local
+      path: components
+
+
+
+sensor:
+
+  - platform: mpu6050
+
+    id: blind_mpu_angle
+
+
+
+
+
+  - platform: adc
+
+    pin: GPIO34
+
+    id: hall_angle
+
+
+
+
+
+jalouzee_blinds:
+
+  - id: bedroom_blinds
+
+    name: "Жалюзи спальня"
+
+
+
+    motor:
+
+      open_pin: GPIO25
+
+      close_pin: GPIO26
+
+
+
+    mpu_sensor:
+      id: blind_mpu_angle
+
+
+
+    hall_sensor:
+      id: hall_angle
