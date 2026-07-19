@@ -1,345 +1,356 @@
 #pragma once
 
-#include <cmath>
 #include <cstdint>
 
 #include "esphome/core/component.h"
-#include "esphome/core/preferences.h"
-
 #include "esphome/components/cover/cover.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/select/select.h"
+#include "esphome/core/preferences.h"
+#include "esphome/core/gpio.h"
 
-#include "motor.h"
+#include "jalouzee_blinds_types.h"
+
 #include "angle_sensor.h"
 #include "calibration.h"
-
 
 namespace esphome {
 namespace jalouzee_blinds {
 
+struct PersistentData {
+
+  uint32_t magic{DATA_MAGIC};
+
+  float closed_angle{0.0f};
+
+  float open_angle{90.0f};
+
+  float current_angle{0.0f};
 
 
-static const char *TAG =
-    "jalouzee_blinds";
+  bool inverted{false};
+
+  bool calibrated{false};
 
 
-
-enum class BlindState : uint8_t
-{
-    CLOSED,
-    HALF,
-    OPEN,
-    MOVING,
-    FAULT
-};
+  uint8_t angle_source{
+      static_cast<uint8_t>(AngleSource::AUTO)
+  };
 
 
+  uint8_t position{
+      static_cast<uint8_t>(BlindPosition::UNKNOWN)
+  };
 
 
-enum class AngleSource : uint8_t
-{
-    AUTO = 0,
-    MPU6050 = 1,
-    HALL = 2
-};
-
-
-
-
-
-struct PersistentData
-{
-
-    uint8_t version;
-
-
-    /*
-       flags:
-
-       bit 0 - inverted
-       bit 1 - calibrated
-       bit 2 - fault
-
-    */
-
-    uint8_t flags;
-
-
-
-    float angle_closed;
-
-
-    float angle_open;
-
-
-    float current_angle;
-
-
-
-    uint8_t angle_source;
+  bool fault{false};
 
 };
-
-
 
 
 
 class JalouzeeBlinds :
     public Component,
-    public cover::Cover
-{
+    public cover::Cover {
 
 
-public:
+ public:
 
 
-    JalouzeeBlinds();
+  JalouzeeBlinds();
 
 
 
-    void setup() override;
+  void setup() override;
 
 
-    void loop() override;
+  void loop() override;
 
 
 
-    cover::CoverTraits get_traits()
-        override;
+  cover::CoverTraits get_traits() override;
 
 
 
-    void control(
-        const cover::CoverCall &call
-    ) override;
+  void control(
+      const cover::CoverCall &call
+  ) override;
 
 
 
-    void dump_config()
-        override;
+  float get_setup_priority() const override;
 
 
 
+  /*
+   * Motor
+   */
 
-    /*
-       hardware
-    */
 
+  void set_motor_pins(
+      GPIOPin *open_pin,
+      GPIOPin *close_pin
+  );
 
-    void set_motor(
-        DualGPIOMotor *motor
-    )
-    {
-        motor_ = motor;
-    }
 
+  void motor_open();
 
 
-    void set_mpu_sensor(
-        sensor::Sensor *sensor
-    );
+  void motor_close();
 
 
-    void set_hall_sensor(
-        sensor::Sensor *sensor
-    );
+  void motor_stop();
 
 
 
 
-    /*
-       HA entities
-    */
+  /*
+   * Angle sensors
+   */
 
 
-    void set_angle_output(
-        sensor::Sensor *sensor
-    )
-    {
-        angle_output_ = sensor;
-    }
+  void set_primary_sensor(
+      sensor::Sensor *sensor
+  );
 
 
+  void set_secondary_sensor(
+      sensor::Sensor *sensor
+  );
 
-    void set_fault_output(
-        binary_sensor::BinarySensor *sensor
-    )
-    {
-        fault_output_ = sensor;
-    }
 
+  void set_angle_source(
+      AngleSource source
+  );
 
 
-    void set_angle_select(
-        select::Select *select
-    )
-    {
-        angle_select_ = select;
-    }
 
+  float get_angle();
 
 
-    /*
-       calibration
-    */
 
+  bool angle_available();
 
-    void start_calibration();
 
 
-    void save_closed_position();
 
+  /*
+   * Calibration
+   */
 
-    void save_open_position();
 
+  void start_calibration();
 
 
+  void save_closed_position();
 
-    /*
-       fault
-    */
 
+  void save_open_position();
 
-    void clear_fault();
 
 
+  bool is_calibrated();
 
-    /*
-       settings
-    */
 
 
-    void set_angle_source(
-        AngleSource source
-    );
 
 
+  /*
+   * Fault handling
+   */
 
-protected:
 
+  void set_fault();
 
-    void move_to_angle(
-        float angle
-    );
 
+  void clear_fault();
 
-    float get_angle();
 
+  bool has_fault();
 
 
-    AngleSensor *get_active_sensor();
 
 
 
-    void check_stall();
+  /*
+   * Entities
+   */
 
 
+  void set_angle_output(
+      sensor::Sensor *sensor
+  );
 
-    void save_preferences();
 
+  void set_position_output(
+      sensor::Sensor *sensor
+  );
 
-    void load_preferences();
 
+  void set_fault_output(
+      binary_sensor::BinarySensor *sensor
+  );
 
 
+  void set_calibrated_output(
+      binary_sensor::BinarySensor *sensor
+  );
 
-    /*
-       flags
-    */
 
 
-    bool is_inverted();
 
+  /*
+   * Configuration
+   */
 
-    void set_inverted(
-        bool value
-    );
 
+  void set_stall_timeout(
+      uint32_t timeout
+  );
 
 
-    bool is_calibrated();
 
 
-    void set_calibrated(
-        bool value
-    );
+ protected:
 
 
 
-    bool has_fault();
+  void move_to(
+      BlindPosition target
+  );
 
 
-    void set_fault(
-        bool value
-    );
 
+  void update_position();
 
 
 
-protected:
+  void publish_entities();
 
 
-    DualGPIOMotor *motor_{nullptr};
 
+  void load_state();
 
 
-    ESPHomeAngleSensor *mpu_sensor_{nullptr};
 
+  void save_state();
 
-    ESPHomeAngleSensor *hall_sensor_{nullptr};
 
+  AngleSource source_{
+      AngleSource::AUTO
+  };
 
+  AngleSource angle_source() const;
 
+ protected:
 
-    sensor::Sensor *angle_output_{nullptr};
 
+  /*
+   * Hardware
+   */
 
-    binary_sensor::BinarySensor *fault_output_{nullptr};
 
+  GPIOPin *motor_open_pin_{nullptr};
 
-    select::Select *angle_select_{nullptr};
+  GPIOPin *motor_close_pin_{nullptr};
 
 
 
 
-    JalouzeeCalibration calibration_;
+  /*
+   * Sensors
+   */
 
 
+  AngleSensor angle_sensor_;
 
 
-    ESPPreferenceObject preference_;
 
+  /*
+   * Calibration
+   */
 
-    PersistentData data_{};
 
+  Calibration calibration_;
 
 
-    BlindState state_ =
-        BlindState::CLOSED;
+  /*
+   * Runtime state
+   */
 
 
+  BlindState state_{
+      BlindState::IDLE
+  };
 
-    float target_angle_{0};
 
+  BlindPosition position_{
+      BlindPosition::UNKNOWN
+  };
 
-    float last_angle_{0};
 
 
 
-    uint32_t last_angle_change_{0};
 
 
+  float target_angle_{0.0f};
 
-    uint32_t stall_timeout_ =
-        10000;
 
+
+  uint32_t movement_start_time_{0};
+
+
+
+  uint32_t last_angle_change_time_{0};
+
+
+
+  float last_angle_{0.0f};
+
+
+
+
+  /*
+   * Settings
+   */
+
+
+  uint32_t stall_timeout_{
+      10000
+  };
+
+
+
+
+  /*
+   * Persistent storage
+   */
+
+
+  ESPPreferenceObject preference_;
+
+  PersistentData data_;
+
+
+
+
+  /*
+   * HA entities
+   */
+
+
+  sensor::Sensor *angle_output_{nullptr};
+
+  sensor::Sensor *position_output_{nullptr};
+
+
+  binary_sensor::BinarySensor *fault_output_{nullptr};
+
+  binary_sensor::BinarySensor *calibrated_output_{nullptr};
 
 
 };
 
 
-
-}
-}
+}  // namespace jalouzee_blinds
+}  // namespace esphome

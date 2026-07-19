@@ -1,226 +1,160 @@
 #include "angle_sensor.h"
 
-
-#include <algorithm>
-
+#include "esphome/core/log.h"
 
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
+    static const char *const TAG = "jalouzee_blinds.angle_sensor";
 
+    void AngleSensor::set_primary(sensor::Sensor *sensor) {
 
-ESPHomeAngleSensor::ESPHomeAngleSensor(
-    sensor::Sensor *sensor,
-    SensorType type
-)
-{
+      primary_ = sensor;
 
-    sensor_ = sensor;
+      if (primary_ != nullptr) {
 
-    type_ = type;
+        primary_received_ = false;
 
-}
+        primary_->add_on_state_callback([this](float value) {
 
+          primary_value_ = value;
 
+          primary_received_ = true;
 
+          last_angle_ = value;
 
+          last_angle_valid_ = true;
 
-
-
-
-bool ESPHomeAngleSensor::available()
-{
-
-    if(!sensor_)
-        return false;
-
-
-
-    return !std::isnan(
-        sensor_->state
-    );
-
-}
-
-
-
-
-
-
-
-
-float ESPHomeAngleSensor::angle()
-{
-
-
-    if(!available())
-    {
-
-        return last_angle_;
-
-    }
-
-
-
-
-    float value =
-        sensor_->state;
-
-
-
-    return filter(
-        value
-    );
-
-}
-
-
-
-
-
-
-
-
-
-float ESPHomeAngleSensor::filter(
-    float value
-)
-{
-
-
-    /*
-       Первый запуск
-
-    */
-
-
-    if(!initialized_)
-    {
-
-        last_angle_ =
-            value;
-
-
-        initialized_ =
-            true;
-
-
-        samples_.push_back(
-            value
+        }
         );
 
-
-        return value;
-
-    }
-
-
-
-
-
-    /*
-       Защита от выбросов
-
-       Например:
-       MPU дал скачок
-       10° -> 180°
-
-    */
-
-
-    if(
-       fabs(
-          value -
-          last_angle_
-       )
-       >
-       45.0f
-      )
-    {
-
-        return last_angle_;
+      }
 
     }
 
+    void AngleSensor::set_secondary(sensor::Sensor *sensor) {
 
+      secondary_ = sensor;
 
+      if (secondary_ != nullptr) {
 
+        secondary_received_ = false;
 
+        primary_->add_on_state_callback([this](float value) {
 
+          primary_value_ = value;
 
-    samples_.push_back(
-        value
-    );
+          primary_received_ = true;
 
+          last_angle_ = value;
 
+          last_angle_valid_ = true;
 
-    /*
-       Окно фильтра
-
-       5 последних измерений
-
-    */
-
-
-    if(
-       samples_.size()
-       >
-       5
-      )
-    {
-
-        samples_.erase(
-            samples_.begin()
+        }
         );
 
-    }
-
-
-
-
-
-
-    float sum = 0;
-
-
-
-    for(
-        float v :
-        samples_
-    )
-    {
-
-        sum += v;
+      }
 
     }
 
+    void AngleSensor::set_source(AngleSource source) {
+
+      source_ = source;
+
+      ESP_LOGD(TAG, "Angle source changed: %d", static_cast<int>(source_));
+
+    }
+
+    void AngleSensor::update_values() {
+
+      /*
+       * Sensor callbacks update values immediately.
+       *
+       * This method is intentionally kept
+       * for future filtering.
+       */
+
+    }
+
+    bool AngleSensor::primary_available() {
+
+      return primary_ != nullptr && primary_received_;
+
+    }
+
+    bool AngleSensor::secondary_available() {
+
+      return secondary_ != nullptr && secondary_received_;
+
+    }
+
+    bool AngleSensor::available() {
+
+      switch (source_) {
+
+        case AngleSource::PRIMARY:
+
+          return primary_available();
+
+        case AngleSource::SECONDARY:
+
+          return secondary_available();
+
+        case AngleSource::AUTO:
+
+          return primary_available() || secondary_available();
+
+      }
+
+      return false;
+
+    }
+
+    float AngleSensor::get_angle() {
+
+      update_values();
+
+      switch (source_) {
+
+        case AngleSource::PRIMARY:
+
+          if (primary_available()) {
+            return primary_value_;
+          }
+
+          break;
+
+        case AngleSource::SECONDARY:
+
+          if (secondary_available()) {
+            return secondary_value_;
+          }
+
+          break;
+
+        case AngleSource::AUTO:
+
+          if (primary_available()) {
+            return primary_value_;
+          }
+
+          if (secondary_available()) {
+            return secondary_value_;
+          }
+
+          break;
+
+      }
+
+      if(last_angle_valid_)
+      {
+          return last_angle_;
+      }
 
 
+      return NAN;
 
+    }
 
-
-    float result =
-        sum /
-        samples_.size();
-
-
-
-
-
-    last_angle_ =
-        result;
-
-
-
-    return result;
-
-}
-
-
-
-
-
-
-
-}
-}
+  }  // namespace jalouzee_blinds
+}  // namespace esphome

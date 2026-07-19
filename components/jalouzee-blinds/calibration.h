@@ -1,9 +1,7 @@
 #pragma once
 
 
-#include <cmath>
 #include <cstdint>
-
 
 
 namespace esphome {
@@ -11,103 +9,106 @@ namespace jalouzee_blinds {
 
 
 
-class JalouzeeCalibration
-{
+enum class CalibrationState : uint8_t {
 
+  IDLE = 0,
 
-public:
+  WAIT_CLOSED = 1,
 
+  WAIT_OPEN = 2,
 
-    void reset();
+  COMPLETE = 3
 
-
-
-    void start();
-
-
-
-
-    bool set_closed(
-        float angle
-    );
-
-
-
-    bool set_open(
-        float angle
-    );
+};
 
 
 
 
 
-    bool completed() const
-    {
-        return completed_;
-    }
+class Calibration {
+
+
+ public:
+
+
+
+  void start();
+
+
+
+  void reset();
+
+
+  void restore(
+      float closed,
+      float open,
+      bool inverted
+  );
+
+  void set_closed_angle(
+      float angle
+  );
+
+
+
+  void set_open_angle(
+      float angle
+  );
 
 
 
 
-    float closed_angle() const
-    {
-        return closed_angle_;
-    }
+
+  bool is_complete() const;
 
 
 
 
-    float open_angle() const
-    {
-        return open_angle_;
-    }
+  CalibrationState state() const;
 
 
 
 
-
-    bool inverted() const
-    {
-        return inverted_;
-    }
+  float closed_angle() const;
 
 
 
-
-
-protected:
-
-
-
-    void calculate_direction();
-
-
-
-protected:
-
-
-
-    float closed_angle_{0};
-
-
-    float open_angle_{0};
+  float open_angle() const;
 
 
 
 
-    bool closed_saved_{false};
-
-
-    bool open_saved_{false};
+  bool inverted() const;
 
 
 
 
-    bool completed_{false};
+ protected:
 
 
 
-    bool inverted_{false};
+  CalibrationState state_{
+      CalibrationState::IDLE
+  };
+
+
+
+  float closed_angle_{
+      0.0f
+  };
+
+
+
+  float open_angle_{
+      0.0f
+  };
+
+
+
+  bool inverted_{
+      false
+  };
+
 
 
 
@@ -115,5 +116,5 @@ protected:
 
 
 
-}
-}
+}  // namespace jalouzee_blinds
+}  // namespace esphome

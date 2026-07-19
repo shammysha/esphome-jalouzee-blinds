@@ -9,6 +9,13 @@ namespace jalouzee_blinds {
 
 
 
+static const char *const TAG =
+    "jalouzee_blinds";
+
+
+
+
+
 JalouzeeBlinds::JalouzeeBlinds()
 {
 
@@ -18,43 +25,156 @@ JalouzeeBlinds::JalouzeeBlinds()
 
 
 
+
+
+
+
 void JalouzeeBlinds::setup()
 {
 
-
-    preference_ =
-        global_preferences
-        ->
-        make_preference<PersistentData>(
-            0x4A424C42
-        );
+  ESP_LOGI(
+      TAG,
+      "Starting Jalouzee Blinds"
+  );
 
 
 
-    load_preferences();
+  /*
+   * Motor pins
+   */
+
+
+  if(
+      motor_open_pin_ != nullptr
+  )
+  {
+    motor_open_pin_->setup();
+  }
+
+
+  if(
+      motor_close_pin_ != nullptr
+  )
+  {
+    motor_close_pin_->setup();
+  }
+
+
+  motor_stop();
 
 
 
-    if(motor_)
-        motor_->setup();
+
+  /*
+   * Preferences
+   */
+
+
+  preference_ =
+      global_preferences->make_preference<PersistentData>(
+          DATA_PREF_KEY
+      );
 
 
 
-    last_angle_ =
-        get_angle();
+  if(
+      preference_.load(
+          &data_
+      )
+  )
+  {
 
+    if(
+        data_.magic != DATA_MAGIC
+    )
+    {
 
+      ESP_LOGW(
+          TAG,
+          "Invalid stored data"
+      );
 
-    last_angle_change_ =
-        millis();
+      data_ =
+          PersistentData();
 
+    }
 
+  }
+  else
+  {
 
     ESP_LOGI(
         TAG,
-        "Setup complete"
+        "No stored calibration data"
     );
 
+  }
+
+
+
+
+  /*
+   * Restore runtime state
+   */
+
+
+  source_ =
+      static_cast<AngleSource>(
+          data_.angle_source
+      );
+
+
+
+  if(
+      data_.position <=
+      static_cast<uint8_t>(
+          BlindPosition::UNKNOWN
+      )
+  )
+  {
+      position_ =
+          static_cast<BlindPosition>(
+              data_.position
+          );
+  }
+  else
+  {
+      position_ =
+          BlindPosition:HALF;
+  }
+
+
+  if(
+      data_.fault
+  )
+  {
+
+    state_ =
+        BlindState::FAULT;
+
+  }
+
+  if(
+      data_.calibrated
+  )
+  {
+      calibration_.restore(
+          data_.closed_angle,
+          data_.open_angle,
+          data_.inverted
+      );
+  }
+
+
+  angle_sensor_.set_source(
+      source_
+  );
+
+
+
+
+  publish_entities();
+
 }
 
 
@@ -62,39 +182,13 @@ void JalouzeeBlinds::setup()
 
 
 
-void JalouzeeBlinds::loop()
+
+
+
+float JalouzeeBlinds::get_setup_priority() const
 {
 
-
-    float angle =
-        get_angle();
-
-
-
-    if(angle_output_)
-    {
-        angle_output_->publish_state(
-            angle
-        );
-    }
-
-
-
-    if(fault_output_)
-    {
-        fault_output_->publish_state(
-            has_fault()
-        );
-    }
-
-
-
-    if(has_fault())
-        return;
-
-
-
-    check_stall();
+  return setup_priority::DATA;
 
 
 }
@@ -105,27 +199,162 @@ void JalouzeeBlinds::loop()
 
 
 
-cover::CoverTraits
-JalouzeeBlinds::get_traits()
+
+
+cover::CoverTraits JalouzeeBlinds::get_traits()
 {
 
-    auto traits =
-        cover::CoverTraits();
+  auto traits =
+      cover::CoverTraits();
 
 
 
-    traits.set_is_assumed_state(
-        true
+  traits.set_is_assumed_state(
+      false
+  );
+
+
+
+  traits.set_supports_stop(
+      true
+  );
+
+
+
+  traits.set_supports_position(
+      true
+  );
+
+
+
+  return traits;
+
+}
+
+void JalouzeeBlinds::move_to(
+    BlindPosition target
+)
+{
+
+  if(
+      !data_.calibrated
+  )
+  {
+
+    ESP_LOGW(
+        TAG,
+        "Cannot move: not calibrated"
     );
 
+    return;
 
-    return traits;
+  }
+
+
+  switch(target)
+  {
+
+    case BlindPosition::CLOSED:
+
+      target_angle_ =
+          data_.closed_angle;
+
+      break;
+
+
+    case BlindPosition::OPEN:
+
+      target_angle_ =
+          data_.open_angle;
+
+      break;
+
+
+    case BlindPosition::HALF:
+
+      target_angle_ =
+          (
+              data_.closed_angle +
+              data_.open_angle
+          )
+          /
+          2.0f;
+
+      break;
+
+
+    default:
+
+      return;
+
+  }
+
+
+
+  float current =
+      get_angle();
+
+
+
+  bool increasing =
+      target_angle_ > current;
+
+
+
+  if(
+      data_.inverted
+  )
+  {
+    increasing =
+        !increasing;
+  }
+
+
+
+  movement_start_time_ =
+      millis();
+
+
+  last_angle_change_time_ =
+      millis();
+
+
+  last_angle_ =
+      current;
+
+
+
+  if(increasing)
+  {
+
+    motor_open();
+
+
+    state_ =
+        BlindState::MOVING_OPEN;
+
+
+  }
+  else
+  {
+
+    motor_close();
+
+
+    state_ =
+        BlindState::MOVING_CLOSE;
+
+  }
+
+
+
+  ESP_LOGI(
+      TAG,
+      "Moving to %.2f",
+      target_angle_
+  );
 
 }
-
-
-
-
 
 
 void JalouzeeBlinds::control(
@@ -134,406 +363,465 @@ void JalouzeeBlinds::control(
 {
 
 
-    if(has_fault())
+  if(
+      has_fault()
+  )
+  {
+
+    ESP_LOGW(
+        TAG,
+        "Command ignored: FAULT state"
+    );
+
+    return;
+
+  }
+
+
+
+
+  /*
+   * STOP command
+   */
+
+
+  if(
+      call.get_stop()
+  )
+  {
+
+    motor_stop();
+
+
+    state_ =
+        BlindState::IDLE;
+
+
+    ESP_LOGI(
+        TAG,
+        "Movement stopped"
+    );
+
+
+    return;
+
+  }
+
+
+
+
+
+
+
+  /*
+   * Position command
+   *
+   * HA slider:
+   *
+   * 0.0 = closed
+   * 0.5 = half
+   * 1.0 = open
+   *
+   */
+
+
+  if(
+      call.get_position().has_value()
+  )
+  {
+
+    float pos =
+        *call.get_position();
+
+
+
+    if(
+        pos <= 0.05f
+    )
     {
-        ESP_LOGW(
-            TAG,
-            "Command ignored - FAULT"
+
+      move_to(
+          BlindPosition::CLOSED
+      );
+
+    }
+    else if(
+        pos >= 0.95f
+    )
+    {
+
+      move_to(
+          BlindPosition::OPEN
+      );
+
+    }
+    else
+    {
+
+      move_to(
+          BlindPosition::HALF
+      );
+
+    }
+
+
+    return;
+
+  }
+
+
+
+
+
+
+
+  /*
+   * OPEN button
+   */
+
+
+  if(
+      call.get_command_open()
+  )
+  {
+
+
+    switch(position_)
+    {
+
+
+      case BlindPosition::CLOSED:
+
+
+        move_to(
+            BlindPosition::HALF
         );
 
-        return;
-    }
+        break;
 
 
 
+      case BlindPosition::HALF:
 
-    if(call.get_stop())
-    {
 
-        motor_->stop();
+        move_to(
+            BlindPosition::OPEN
+        );
 
-        state_ =
-            BlindState::MOVING;
-
-        publish_state();
-
-        return;
-
-    }
+        break;
 
 
 
-
-    if(call.get_open())
-    {
+      default:
 
 
-        if(state_ == BlindState::CLOSED)
-        {
+        move_to(
+            BlindPosition::OPEN
+        );
 
-            move_to_angle(
-                data_.angle_closed +
-                (
-                 data_.angle_open -
-                 data_.angle_closed
-                ) * 0.5f
-            );
-
-
-            state_ =
-                BlindState::HALF;
-
-        }
-        else
-        if(state_ == BlindState::HALF)
-        {
-
-            move_to_angle(
-                data_.angle_open
-            );
-
-
-            state_ =
-                BlindState::OPEN;
-
-        }
-
+        break;
 
     }
 
 
+    return;
+
+  }
 
 
 
 
-    if(call.get_close())
+
+
+
+
+  /*
+   * CLOSE button
+   */
+
+
+  if(
+      call.get_command_close()
+  )
+  {
+
+
+    switch(position_)
     {
 
 
-        if(state_ == BlindState::OPEN)
-        {
-
-            move_to_angle(
-                data_.angle_closed +
-                (
-                 data_.angle_open -
-                 data_.angle_closed
-                ) * 0.5f
-            );
+      case BlindPosition::OPEN:
 
 
-            state_ =
-                BlindState::HALF;
+        move_to(
+            BlindPosition::HALF
+        );
 
 
-        }
-        else
-        if(state_ == BlindState::HALF)
-        {
-
-            move_to_angle(
-                data_.angle_closed
-            );
+        break;
 
 
-            state_ =
-                BlindState::CLOSED;
 
-        }
+      case BlindPosition::HALF:
+
+
+        move_to(
+            BlindPosition::CLOSED
+        );
+
+
+        break;
+
+
+
+      default:
+
+
+        move_to(
+            BlindPosition::CLOSED
+        );
+
+
+        break;
 
 
     }
 
 
+    return;
 
-    publish_state();
+  }
+
 
 }
 
 
+void JalouzeeBlinds::update_position() {
+  this->position =
+      (angle - closed) /
+      (open - closed);
 
+}
 
-
-
-
-void JalouzeeBlinds::move_to_angle(
-    float angle
-)
+void JalouzeeBlinds::loop()
 {
 
-    target_angle_ =
+  if(
+      state_ != BlindState::MOVING_OPEN &&
+      state_ != BlindState::MOVING_CLOSE
+  )
+  {
+    return;
+  }
+
+
+
+
+
+  uint32_t now =
+      millis();
+
+
+
+  float angle =
+      get_angle();
+
+  if(!angle_available())
+  {
+      if(
+         now - movement_start_time_
+         >
+         3000
+      )
+      {
+          ESP_LOGE(
+              TAG,
+              "Angle sensor timeout"
+          );
+
+          motor_stop();
+          set_fault();
+      }
+
+      return;
+  }
+
+  /*
+   * Проверяем изменение угла
+   */
+
+
+  if(
+      fabs(
+          angle -
+          last_angle_
+      ) > 0.3f
+  )
+  {
+
+    last_angle_ =
+        angle;
+
+
+    last_angle_change_time_ =
+        now;
+
+
+    data_.current_angle =
+        angle;
+
+
+  }
+
+
+
+
+
+  /*
+   * Контроль зависания
+   */
+
+
+  if(
+      now -
+      last_angle_change_time_
+      >
+      stall_timeout_
+  )
+  {
+
+
+    ESP_LOGE(
+        TAG,
+        "Movement timeout: angle does not change"
+    );
+
+
+
+    motor_stop();
+
+
+
+    set_fault();
+
+
+
+    return;
+
+  }
+
+
+
+
+
+
+
+
+  /*
+   * Достигли цели
+   */
+
+
+  bool reached = false;
+
+
+  if(
+      fabs(
+          angle - target_angle_
+      ) < 1.0f
+  )
+  {
+      reached = true;
+  }
+
+
+
+
+
+
+
+
+  if(
+      reached
+  )
+  {
+
+    motor_stop();
+
+
+
+    state_ =
+        BlindState::IDLE;
+
+
+
+    if(
+        fabs(
+            target_angle_ -
+            data_.closed_angle
+        )
+        <
+        1.0f
+    )
+    {
+
+      position_ =
+          BlindPosition::CLOSED;
+
+    }
+    else if(
+        fabs(
+            target_angle_ -
+            data_.open_angle
+        )
+        <
+        1.0f
+    )
+    {
+
+      position_ =
+          BlindPosition::OPEN;
+
+    }
+    else
+    {
+
+      position_ =
+          BlindPosition::HALF;
+
+    }
+
+
+
+
+
+    data_.position =
+        static_cast<uint8_t>(
+            position_
+        );
+
+
+
+    data_.current_angle =
         angle;
 
 
 
-    float current =
-        get_angle();
+    save_state();
 
 
 
-    bool open_direction;
-
-
-
-    if(is_inverted())
-    {
-        open_direction =
-            target_angle_ < current;
-    }
-    else
-    {
-        open_direction =
-            target_angle_ > current;
-    }
-
-
-
-    if(open_direction)
-        motor_->open();
-
-    else
-        motor_->close();
-
-
-
-    last_angle_change_ =
-        millis();
-
-
-
-}
-
-
-
-
-
-
-float JalouzeeBlinds::get_angle()
-{
-
-    auto sensor =
-        get_active_sensor();
-
-
-
-    if(!sensor)
-        return last_angle_;
-
-
-
-    last_angle_ =
-        sensor->angle();
-
-
-    return last_angle_;
-
-}
-
-
-
-
-
-void JalouzeeBlinds::check_stall()
-{
-
-    float angle =
-        get_angle();
-
-
-
-    if(
-       fabs(
-          angle-last_angle_
-       )
-       > 0.5f
-      )
-    {
-
-        last_angle_change_ =
-            millis();
-
-        last_angle_ =
-            angle;
-
-    }
-
-
-
-    if(
-       millis()
-       -
-       last_angle_change_
-       >
-       stall_timeout_
-      )
-    {
-
-        motor_->stop();
-
-
-        set_fault(
-            true
-        );
-
-
-        save_preferences();
-
-
-
-        ESP_LOGE(
-            TAG,
-            "Motor stalled"
-        );
-
-
-    }
-
-}
-
-void JalouzeeBlinds::set_mpu_sensor(
-    sensor::Sensor *sensor
-)
-{
-
-    if(sensor)
-    {
-
-        mpu_sensor_ =
-            new ESPHomeAngleSensor(
-                sensor,
-                SensorType::MPU6050
-            );
-
-
-        ESP_LOGI(
-            TAG,
-            "MPU6050 sensor attached"
-        );
-
-    }
-
-}
-
-
-
-
-
-
-void JalouzeeBlinds::set_hall_sensor(
-    sensor::Sensor *sensor
-)
-{
-
-    if(sensor)
-    {
-
-        hall_sensor_ =
-            new ESPHomeAngleSensor(
-                sensor,
-                SensorType::HALL
-            );
-
-
-        ESP_LOGI(
-            TAG,
-            "Hall sensor attached"
-        );
-
-    }
-
-}
-
-
-
-
-
-
-
-AngleSensor *
-JalouzeeBlinds::get_active_sensor()
-{
-
-    AngleSource source =
-        static_cast<AngleSource>(
-            data_.angle_source
-        );
-
-
-
-    /*
-       Пользовательский выбор
-    */
-
-
-    if(source == AngleSource::MPU6050)
-    {
-
-        return mpu_sensor_;
-
-    }
-
-
-
-    if(source == AngleSource::HALL)
-    {
-
-        return hall_sensor_;
-
-    }
-
-
-
-    /*
-       AUTO
-
-       приоритет:
-       MPU6050
-       затем Hall
-
-    */
-
-
-    if(
-       mpu_sensor_ &&
-       mpu_sensor_->available()
-      )
-    {
-        return mpu_sensor_;
-    }
-
-
-
-    if(
-       hall_sensor_ &&
-       hall_sensor_->available()
-      )
-    {
-        return hall_sensor_;
-    }
-
-
-
-    return nullptr;
-
-}
-
-
-
-
-
-
-
-void JalouzeeBlinds::start_calibration()
-{
-
-    calibration_.start();
+    publish_entities();
 
 
 
     ESP_LOGI(
         TAG,
-        "Calibration started"
+        "Movement complete"
     );
+
+
+  }
 
 
 }
@@ -543,25 +831,40 @@ void JalouzeeBlinds::start_calibration()
 
 
 
-void JalouzeeBlinds::save_closed_position()
+
+
+
+
+void JalouzeeBlinds::set_fault()
 {
 
-    float angle =
-        get_angle();
+  state_ =
+      BlindState::FAULT;
 
 
 
-    calibration_.set_closed(
-        angle
-    );
+  data_.fault =
+      true;
 
 
 
-    ESP_LOGI(
-        TAG,
-        "Closed position %.2f",
-        angle
-    );
+  motor_stop();
+
+
+
+  save_state();
+
+
+
+  publish_entities();
+
+
+
+  ESP_LOGE(
+      TAG,
+      "BLINDS FAULT"
+  );
+
 
 }
 
@@ -572,70 +875,17 @@ void JalouzeeBlinds::save_closed_position()
 
 
 
-void JalouzeeBlinds::save_open_position()
+
+bool JalouzeeBlinds::has_fault()
 {
 
-    float angle =
-        get_angle();
-
-
-
-    if(
-       calibration_.set_open(
-           angle
-       )
-      )
-    {
-
-
-        data_.angle_closed =
-            calibration_.closed_angle();
-
-
-
-        data_.angle_open =
-            calibration_.open_angle();
-
-
-
-        set_inverted(
-            calibration_.inverted()
-        );
-
-
-
-        set_calibrated(
-            true
-        );
-
-
-
-        data_.current_angle =
-            angle;
-
-
-
-        save_preferences();
-
-
-
-        ESP_LOGI(
-            TAG,
-            "Calibration saved"
-        );
-
-    }
-    else
-    {
-
-        ESP_LOGE(
-            TAG,
-            "Calibration error"
-        );
-
-    }
+  return
+      state_ ==
+      BlindState::FAULT;
 
 }
+
+
 
 
 
@@ -646,23 +896,196 @@ void JalouzeeBlinds::save_open_position()
 void JalouzeeBlinds::clear_fault()
 {
 
-    set_fault(
-        false
-    );
-
-
-    save_preferences();
+  data_.fault =
+      false;
 
 
 
-    state_ =
-        BlindState::CLOSED;
+  state_ =
+      BlindState::IDLE;
 
 
 
-    publish_state();
+  save_state();
 
 
+
+  publish_entities();
+
+
+
+  ESP_LOGW(
+      TAG,
+      "Fault cleared"
+  );
+
+
+}
+
+
+void JalouzeeBlinds::set_motor_pins(
+    GPIOPin *open_pin,
+    GPIOPin *close_pin
+)
+{
+
+  motor_open_pin_ =
+      open_pin;
+
+
+  motor_close_pin_ =
+      close_pin;
+
+}
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::motor_open()
+{
+
+  if(
+      motor_close_pin_
+  )
+  {
+
+    motor_close_pin_->digital_write(false);
+
+  }
+
+
+
+  if(
+      motor_open_pin_
+  )
+  {
+
+    motor_open_pin_->digital_write(true);
+
+  }
+
+
+  ESP_LOGD(
+      TAG,
+      "Motor OPEN"
+  );
+
+}
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::motor_close()
+{
+
+  if(
+      motor_open_pin_
+  )
+  {
+
+    motor_open_pin_->digital_write(false);
+
+  }
+
+
+
+  if(
+      motor_close_pin_
+  )
+  {
+
+    motor_close_pin_->digital_write(true);
+
+  }
+
+
+  ESP_LOGD(
+      TAG,
+      "Motor CLOSE"
+  );
+
+}
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::motor_stop()
+{
+
+  if(
+      motor_open_pin_
+  )
+  {
+
+    motor_open_pin_->digital_write(false);
+
+  }
+
+
+
+  if(
+      motor_close_pin_
+  )
+  {
+
+    motor_close_pin_->digital_write(false);
+
+  }
+
+
+  ESP_LOGD(
+      TAG,
+      "Motor STOP"
+  );
+
+}
+
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::set_primary_sensor(
+    sensor::Sensor *sensor
+)
+{
+
+  angle_sensor_.set_primary(
+      sensor
+  );
+
+}
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::set_secondary_sensor(
+    sensor::Sensor *sensor
+)
+{
+
+  angle_sensor_.set_secondary(
+      sensor
+  );
 
 }
 
@@ -678,15 +1101,22 @@ void JalouzeeBlinds::set_angle_source(
 )
 {
 
-    data_.angle_source =
-        static_cast<uint8_t>(
-            source
-        );
+  source_ =
+      source;
 
 
+  angle_sensor_.set_source(
+      source
+  );
 
-    save_preferences();
 
+  data_.angle_source =
+      static_cast<uint8_t>(
+          source
+      );
+
+
+  save_state();
 
 }
 
@@ -697,45 +1127,11 @@ void JalouzeeBlinds::set_angle_source(
 
 
 
-
-void JalouzeeBlinds::load_preferences()
+float JalouzeeBlinds::get_angle()
 {
 
-    if(
-       !preference_.load(
-            &data_
-        )
-      )
-    {
-
-
-        memset(
-            &data_,
-            0,
-            sizeof(data_)
-        );
-
-
-
-        data_.version =
-            1;
-
-
-
-        data_.angle_source =
-            static_cast<uint8_t>(
-                AngleSource::AUTO
-            );
-
-
-    }
-
-
-
-    ESP_LOGI(
-        TAG,
-        "Preferences loaded"
-    );
+  return
+      angle_sensor_.get_angle();
 
 }
 
@@ -746,13 +1142,11 @@ void JalouzeeBlinds::load_preferences()
 
 
 
-
-void JalouzeeBlinds::save_preferences()
+bool JalouzeeBlinds::angle_available()
 {
 
-    preference_.save(
-        &data_
-    );
+  return
+      angle_sensor_.available();
 
 }
 
@@ -764,11 +1158,31 @@ void JalouzeeBlinds::save_preferences()
 
 
 
-bool JalouzeeBlinds::is_inverted()
+void JalouzeeBlinds::start_calibration()
 {
 
-    return
-        data_.flags & 0x01;
+  if(
+      state_ ==
+      BlindState::FAULT
+  )
+  {
+    return;
+  }
+
+
+  state_ =
+      BlindState::CALIBRATION;
+
+
+  calibration_.start();
+
+
+
+  ESP_LOGI(
+      TAG,
+      "Manual calibration started"
+  );
+
 
 }
 
@@ -778,21 +1192,94 @@ bool JalouzeeBlinds::is_inverted()
 
 
 
-void JalouzeeBlinds::set_inverted(
-    bool value
-)
+
+void JalouzeeBlinds::save_closed_position()
 {
 
-    if(value)
+  if(!angle_available())
+  {
+      ESP_LOGE(
+          TAG,
+          "Cannot save closed: angle unavailable"
+      );
 
-        data_.flags |= 0x01;
+      return;
+  }
 
-    else
+  calibration_.set_closed_angle(
+      get_angle()
+  );
 
-        data_.flags &= ~0x01;
 
 }
 
+
+
+
+
+
+
+
+void JalouzeeBlinds::save_open_position()
+{
+
+  if(!angle_available())
+  {
+      ESP_LOGE(
+          TAG,
+          "Cannot save closed: angle unavailable"
+      );
+
+      return;
+  }
+
+  calibration_.set_open_angle(
+      get_angle()
+  );
+
+
+
+  if(
+      calibration_.is_complete()
+  )
+  {
+
+
+    data_.closed_angle =
+        calibration_.closed_angle();
+
+
+
+    data_.open_angle =
+        calibration_.open_angle();
+
+
+
+    data_.inverted =
+        calibration_.inverted();
+
+
+
+    data_.calibrated =
+        true;
+
+
+
+    state_ =
+        BlindState::IDLE;
+
+
+
+    save_state();
+
+
+
+    publish_entities();
+
+
+  }
+
+}
 
 
 
@@ -804,8 +1291,8 @@ void JalouzeeBlinds::set_inverted(
 bool JalouzeeBlinds::is_calibrated()
 {
 
-    return
-        data_.flags & 0x02;
+  return
+      data_.calibrated;
 
 }
 
@@ -815,18 +1302,14 @@ bool JalouzeeBlinds::is_calibrated()
 
 
 
-void JalouzeeBlinds::set_calibrated(
-    bool value
+
+void JalouzeeBlinds::set_stall_timeout(
+    uint32_t timeout
 )
 {
 
-    if(value)
-
-        data_.flags |= 0x02;
-
-    else
-
-        data_.flags &= ~0x02;
+  stall_timeout_ =
+      timeout;
 
 }
 
@@ -838,11 +1321,12 @@ void JalouzeeBlinds::set_calibrated(
 
 
 
-bool JalouzeeBlinds::has_fault()
+void JalouzeeBlinds::load_state()
 {
 
-    return
-        data_.flags & 0x04;
+  preference_.load(
+      &data_
+  );
 
 }
 
@@ -852,18 +1336,149 @@ bool JalouzeeBlinds::has_fault()
 
 
 
-void JalouzeeBlinds::set_fault(
-    bool value
+
+
+void JalouzeeBlinds::save_state()
+{
+
+  data_.magic =
+      DATA_MAGIC;
+
+
+  preference_.save(
+      &data_
+  );
+
+}
+
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::publish_entities()
+{
+
+  /*
+   * Cover position
+   */
+
+
+  switch(position_)
+  {
+
+
+    case BlindPosition::CLOSED:
+
+      this->position =
+          0.0f;
+
+      break;
+
+
+    case BlindPosition::HALF:
+
+      this->position =
+          0.5f;
+
+      break;
+
+
+    case BlindPosition::OPEN:
+
+      this->position =
+          1.0f;
+
+      break;
+
+
+    default:
+
+      break;
+
+  }
+
+
+  this->publish_state();
+
+
+
+  if(
+      angle_output_
+  )
+  {
+
+    angle_output_->publish_state(
+        get_angle()
+    );
+
+  }
+
+
+
+
+  if(
+      position_output_
+  )
+  {
+
+    position_output_->publish_state(
+        static_cast<float>(
+            static_cast<uint8_t>(
+                position_
+            )
+        )
+    );
+
+  }
+
+
+
+
+  if(
+      fault_output_
+  )
+  {
+
+    fault_output_->publish_state(
+        has_fault()
+    );
+
+  }
+
+
+
+
+  if(
+      calibrated_output_
+  )
+  {
+
+    calibrated_output_->publish_state(
+        data_.calibrated
+    );
+
+  }
+
+}
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::set_angle_output(
+    sensor::Sensor *sensor
 )
 {
 
-    if(value)
-
-        data_.flags |= 0x04;
-
-    else
-
-        data_.flags &= ~0x04;
+  angle_output_ =
+      sensor;
 
 }
 
@@ -873,58 +1488,57 @@ void JalouzeeBlinds::set_fault(
 
 
 
-void JalouzeeBlinds::dump_config()
+
+void JalouzeeBlinds::set_position_output(
+    sensor::Sensor *sensor
+)
 {
 
-    ESP_LOGCONFIG(
-        TAG,
-        "Jalouzee Blinds"
-    );
-
-
-    ESP_LOGCONFIG(
-        TAG,
-        "Closed angle: %.2f",
-        data_.angle_closed
-    );
-
-
-    ESP_LOGCONFIG(
-        TAG,
-        "Open angle: %.2f",
-        data_.angle_open
-    );
-
-
-    ESP_LOGCONFIG(
-        TAG,
-        "Current angle: %.2f",
-        data_.current_angle
-    );
-
-
-    ESP_LOGCONFIG(
-        TAG,
-        "Inverted: %s",
-        is_inverted()
-        ?
-        "YES"
-        :
-        "NO"
-    );
-
-
-    ESP_LOGCONFIG(
-        TAG,
-        "Calibrated: %s",
-        is_calibrated()
-        ?
-        "YES"
-        :
-        "NO"
-    );
+  position_output_ =
+      sensor;
 
 }
 
+
+
+
+
+
+
+
+void JalouzeeBlinds::set_fault_output(
+    binary_sensor::BinarySensor *sensor
+)
+{
+
+  fault_output_ =
+      sensor;
+
 }
+
+
+
+
+
+
+
+
+void JalouzeeBlinds::set_calibrated_output(
+    binary_sensor::BinarySensor *sensor
+)
+{
+
+  calibrated_output_ =
+      sensor;
+
 }
+
+
+AngleSource JalouzeeBlinds::angle_source() const
+{
+    return source_;
+}
+
+
+}  // namespace jalouzee_blinds
+}  // namespace esphome

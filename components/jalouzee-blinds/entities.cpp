@@ -1,23 +1,30 @@
-#include "entities.h"
 
+#include "entities.h"
 #include "jalouzee_blinds.h"
+#include "esphome/core/log.h"
 
 
 namespace esphome {
 namespace jalouzee_blinds {
 
 
+static const char *const TAG =
+    "jalouzee_blinds.entities";
 
 
 
-void CalibrationStartButton::press_action()
+
+
+
+
+
+void JalouzeeButton::set_parent(
+    JalouzeeBlinds *parent
+)
 {
 
-    if(parent_)
-    {
-        parent_->
-            start_calibration();
-    }
+  parent_ =
+      parent;
 
 }
 
@@ -28,14 +35,13 @@ void CalibrationStartButton::press_action()
 
 
 
-void SaveClosedButton::press_action()
+void JalouzeeButton::set_action(
+    Action action
+)
 {
 
-    if(parent_)
-    {
-        parent_->
-            save_closed_position();
-    }
+  action_ =
+      action;
 
 }
 
@@ -46,14 +52,82 @@ void SaveClosedButton::press_action()
 
 
 
-void SaveOpenButton::press_action()
+void JalouzeeButton::press_action()
 {
 
-    if(parent_)
-    {
-        parent_->
-            save_open_position();
-    }
+  if(
+      parent_ == nullptr
+  )
+  {
+    return;
+  }
+
+
+
+  switch(action_)
+  {
+
+
+    case Action::START_CALIBRATION:
+
+
+      parent_->start_calibration();
+
+      ESP_LOGI(
+          TAG,
+          "Start calibration requested"
+      );
+
+      break;
+
+
+
+
+    case Action::SAVE_CLOSED:
+
+      ESP_LOGI(
+          TAG,
+          "Save closed requested"
+      );
+
+      parent_->save_closed_position();
+
+
+
+      break;
+
+
+
+
+    case Action::SAVE_OPEN:
+
+      ESP_LOGI(
+          TAG,
+          "Save open requested"
+      );
+
+      parent_->save_open_position();
+
+
+
+      break;
+
+
+
+
+    case Action::CLEAR_FAULT:
+      ESP_LOGI(
+          TAG,
+          "Clear fault requested"
+      );
+
+      parent_->clear_fault();
+
+
+      break;
+
+
+  }
 
 }
 
@@ -64,16 +138,82 @@ void SaveOpenButton::press_action()
 
 
 
-void ClearFaultButton::press_action()
+
+void AngleSourceSelect::set_parent(
+    JalouzeeBlinds *parent
+)
 {
 
-    if(parent_)
-    {
-        parent_->
-            clear_fault();
-    }
+  parent_ =
+      parent;
 
 }
+
+
+
+
+
+
+
+
+void AngleSourceSelect::setup()
+{
+
+  this->traits.set_options(
+      {
+          "AUTO",
+          "PRIMARY",
+          "SECONDARY"
+      }
+  );
+
+  if(
+      parent_ == nullptr
+  )
+  {
+      ESP_LOGW(
+          TAG,
+          "Angle source select without parent"
+      );
+
+      return;
+  }
+
+  switch(
+      parent_->angle_source()
+  )
+  {
+
+      case AngleSource::AUTO:
+
+          this->publish_state(
+              "AUTO"
+          );
+
+          break;
+
+
+      case AngleSource::PRIMARY:
+
+          this->publish_state(
+              "PRIMARY"
+          );
+
+          break;
+
+
+      case AngleSource::SECONDARY:
+
+          this->publish_state(
+              "SECONDARY"
+          );
+
+          break;
+
+  }
+
+}
+
 
 
 
@@ -87,54 +227,59 @@ void AngleSourceSelect::control(
 )
 {
 
+  if(
+      parent_ == nullptr
+  )
+  {
+    return;
+  }
 
-    if(!parent_)
-        return;
+  bool accepted = false;
 
+  if(
+      value == "AUTO"
+  )
+  {
 
-
-    if(value == "AUTO")
-    {
-
-        parent_->
-            set_angle_source(
-                AngleSource::AUTO
-            );
-
-    }
-    else
-    if(value == "MPU6050")
-    {
-
-        parent_->
-            set_angle_source(
-                AngleSource::MPU6050
-            );
-
-    }
-    else
-    if(value == "HALL")
-    {
-
-        parent_->
-            set_angle_source(
-                AngleSource::HALL
-            );
-
-    }
-
-
-
-    publish_state(
-        value
+    parent_->set_angle_source(
+        AngleSource::AUTO
     );
 
+    accepted = true;
 
+  }
+  else if(
+      value == "PRIMARY"
+  )
+  {
+
+    parent_->set_angle_source(
+        AngleSource::PRIMARY
+    );
+
+    accepted = true;
+
+  }
+  else if(
+      value == "SECONDARY"
+  )
+  {
+
+    parent_->set_angle_source(
+        AngleSource::SECONDARY
+    );
+
+    accepted = true;
+
+  }
+
+  if(accepted)
+  {
+      this->publish_state(value);
+  }
 }
 
 
 
-
-
-}
-}
+} // namespace jalouzee_blinds
+} // namespace esphome

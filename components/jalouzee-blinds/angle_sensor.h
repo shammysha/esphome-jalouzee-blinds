@@ -1,123 +1,57 @@
 #pragma once
 
-
-#include <vector>
-#include <cmath>
-
+#include <cstdint>
 
 #include "esphome/components/sensor/sensor.h"
 
-
+#include "jalouzee_blinds_types.h"
 
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
+    class AngleSensor {
 
+      public:
 
-enum class SensorType : uint8_t
-{
-    NONE = 0,
-    MPU6050 = 1,
-    HALL = 2
-};
+        AngleSensor() = default;
 
+        void set_primary(sensor::Sensor *sensor);
 
+        void set_secondary(sensor::Sensor *sensor);
 
+        void set_source(AngleSource source);
 
+        float get_angle();
 
-class AngleSensor
-{
+        bool available();
 
-public:
+        bool primary_available();
 
+        bool secondary_available();
 
-    virtual bool available() = 0;
+      protected:
 
+        sensor::Sensor *primary_ { nullptr };
 
-    virtual float angle() = 0;
+        sensor::Sensor *secondary_ { nullptr };
 
+        AngleSource source_ { AngleSource::AUTO };
 
-    virtual SensorType type() = 0;
+        float primary_value_ { 0.0f };
 
+        float secondary_value_ { 0.0f };
 
+        float last_angle_ { 0.0f };
 
-    virtual ~AngleSensor() = default;
+        bool last_angle_valid_ { false };
 
-};
+        bool primary_received_ { false };
 
+        bool secondary_received_ { false };
 
+        void update_values();
 
+    };
 
-
-
-
-
-class ESPHomeAngleSensor :
-    public AngleSensor
-{
-
-
-public:
-
-
-    ESPHomeAngleSensor(
-        sensor::Sensor *sensor,
-        SensorType type
-    );
-
-
-
-    bool available() override;
-
-
-
-    float angle() override;
-
-
-
-    SensorType type() override
-    {
-        return type_;
-    }
-
-
-
-
-protected:
-
-
-    float filter(
-        float value
-    );
-
-
-
-protected:
-
-
-    sensor::Sensor *sensor_{nullptr};
-
-
-    SensorType type_ =
-        SensorType::NONE;
-
-
-
-    float last_angle_{0};
-
-
-
-    bool initialized_{false};
-
-
-
-    std::vector<float> samples_;
-
-
-};
-
-
-
-
-}
-}
+  }  // namespace jalouzee_blinds
+}  // namespace esphome

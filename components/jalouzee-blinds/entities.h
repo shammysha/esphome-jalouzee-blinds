@@ -1,148 +1,71 @@
 #pragma once
 
 
+#include "esphome/core/component.h"
+
 #include "esphome/components/button/button.h"
 #include "esphome/components/select/select.h"
+
+
+#include "jalouzee_blinds.h"
+
 
 
 namespace esphome {
 namespace jalouzee_blinds {
 
-
 class JalouzeeBlinds;
 
-
-
-
-class CalibrationStartButton :
+class JalouzeeButton :
     public button::Button
 {
 
-public:
+
+ public:
 
 
-    void set_parent(
-        JalouzeeBlinds *parent
-    )
-    {
-        parent_ = parent;
-    }
+  enum class Action : uint8_t {
 
+    START_CALIBRATION,
 
+    SAVE_CLOSED,
 
-protected:
+    SAVE_OPEN,
 
+    CLEAR_FAULT
 
-    void press_action() override;
-
-
-
-    JalouzeeBlinds *parent_{nullptr};
-
-};
+  };
 
 
 
+  void set_parent(
+      JalouzeeBlinds *parent
+  );
+
+
+  void set_action(
+      Action action
+  );
+
+
+ protected:
+
+
+  void press_action() override;
 
 
 
-
-class SaveClosedButton :
-    public button::Button
-{
-
-public:
+ protected:
 
 
-    void set_parent(
-        JalouzeeBlinds *parent
-    )
-    {
-        parent_ = parent;
-    }
+  JalouzeeBlinds *parent_{nullptr};
 
 
-
-protected:
-
-
-    void press_action() override;
-
-
-
-    JalouzeeBlinds *parent_{nullptr};
+  Action action_{
+      Action::START_CALIBRATION
+  };
 
 };
-
-
-
-
-
-
-
-
-class SaveOpenButton :
-    public button::Button
-{
-
-public:
-
-
-    void set_parent(
-        JalouzeeBlinds *parent
-    )
-    {
-        parent_ = parent;
-    }
-
-
-
-protected:
-
-
-    void press_action() override;
-
-
-
-    JalouzeeBlinds *parent_{nullptr};
-
-};
-
-
-
-
-
-
-
-
-
-class ClearFaultButton :
-    public button::Button
-{
-
-public:
-
-
-    void set_parent(
-        JalouzeeBlinds *parent
-    )
-    {
-        parent_ = parent;
-    }
-
-
-
-protected:
-
-
-    void press_action() override;
-
-
-
-    JalouzeeBlinds *parent_{nullptr};
-
-};
-
 
 
 
@@ -155,34 +78,38 @@ class AngleSourceSelect :
     public select::Select
 {
 
-public:
+
+ public:
 
 
-    void set_parent(
-        JalouzeeBlinds *parent
-    )
-    {
-        parent_ = parent;
-    }
-
+  void set_parent(
+      JalouzeeBlinds *parent
+  );
 
 
 
-protected:
+  void setup() override;
 
 
-    void control(
-        const std::string &value
-    ) override;
+ protected:
+
+
+  void control(
+      const std::string &value
+  ) override;
 
 
 
-    JalouzeeBlinds *parent_{nullptr};
+ protected:
+
+
+  JalouzeeBlinds *parent_{nullptr};
 
 };
 
 
 
 
-}
-}
+
+} // namespace jalouzee_blinds
+} // namespace esphome

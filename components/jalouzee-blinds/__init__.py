@@ -1,199 +1,93 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 
-
-from esphome.components import (
-    cover,
-    sensor,
-    binary_sensor,
-    button,
-    select,
-)
-
+from esphome.components import cover
+from esphome.components import sensor
+from esphome import pins
 
 from esphome.const import (
     CONF_ID,
 )
 
-
-from esphome import pins
-
-
-
 DEPENDENCIES = [
-    "sensor",
+    "cover",
 ]
 
 
-
-CODEOWNERS = [
-    "@local"
-]
-
-
-
-jalouzee_ns = cg.esphome_ns.namespace(
+jalouzee_blinds_ns = cg.esphome_ns.namespace(
     "jalouzee_blinds"
 )
 
 
-
-JalouzeeBlinds = jalouzee_ns.class_(
+JalouzeeBlinds = jalouzee_blinds_ns.class_(
     "JalouzeeBlinds",
+    cover.Cover,
     cg.Component,
-    cover.Cover
+    includes=[
+        "jalouzee_blinds.h",
+    ],
 )
 
 
-
-DualGPIOMotor = jalouzee_ns.class_(
-    "DualGPIOMotor"
-)
-
-
-
-
-
-CalibrationStartButton = jalouzee_ns.class_(
-    "CalibrationStartButton",
-    button.Button
-)
-
-
-
-SaveClosedButton = jalouzee_ns.class_(
-    "SaveClosedButton",
-    button.Button
-)
-
-
-
-SaveOpenButton = jalouzee_ns.class_(
-    "SaveOpenButton",
-    button.Button
-)
-
-
-
-ClearFaultButton = jalouzee_ns.class_(
-    "ClearFaultButton",
-    button.Button
-)
-
-
-
-AngleSourceSelect = jalouzee_ns.class_(
-    "AngleSourceSelect",
-    select.Select
-)
-
-
-
-
-
-CONF_MOTOR = "motor"
-
+AUTO_LOAD = [
+    "button",
+    "sensor",
+    "binary_sensor",
+    "select",
+]
 
 CONF_OPEN_PIN = "open_pin"
-
-
 CONF_CLOSE_PIN = "close_pin"
 
+CONF_PRIMARY_SENSOR = "primary_sensor"
+CONF_SECONDARY_SENSOR = "secondary_sensor"
 
-
-CONF_MPU_SENSOR = "mpu_sensor"
-
-
-CONF_HALL_SENSOR = "hall_sensor"
-
-
-
+CONF_STALL_TIMEOUT = "stall_timeout"
 
 
 CONFIG_SCHEMA = (
     cv.Schema(
         {
-
-
             cv.GenerateID():
-            cv.declare_id(
-                JalouzeeBlinds
-            ),
-
-
-
-            cv.Required(
-                CONF_MOTOR
-            ):
-            cv.Schema(
-                {
-
-
-                    cv.Required(
-                        CONF_OPEN_PIN
-                    ):
-                    pins.gpio_output_pin_schema,
-
-
-
-                    cv.Required(
-                        CONF_CLOSE_PIN
-                    ):
-                    pins.gpio_output_pin_schema,
-
-
-                }
-            ),
-
-
-
-
-
-            cv.Optional(
-                CONF_MPU_SENSOR
-            ):
-            cv.use_id(
-                sensor.Sensor
-            ),
-
-
-
-
-            cv.Optional(
-                CONF_HALL_SENSOR
-            ):
-            cv.use_id(
-                sensor.Sensor
-            ),
-
-
-
+                cv.declare_id(JalouzeeBlinds),
         }
     )
     .extend(
-        cover.cover_schema(
-            JalouzeeBlinds,
-            device_class="blind"
-        )
+        cover.cover_schema(JalouzeeBlinds)
     )
     .extend(
-        cv.COMPONENT_SCHEMA
+        {
+            cv.Required(CONF_OPEN_PIN):
+                pins.gpio_output_pin_schema,
+
+            cv.Required(CONF_CLOSE_PIN):
+                pins.gpio_output_pin_schema,
+
+
+            cv.Optional(CONF_PRIMARY_SENSOR):
+                cv.use_id(sensor.Sensor),
+
+
+            cv.Optional(CONF_SECONDARY_SENSOR):
+                cv.use_id(sensor.Sensor),
+
+
+            cv.Optional(
+                CONF_STALL_TIMEOUT,
+                default="10s"
+            ):
+                cv.positive_time_period_milliseconds,
+
+        }
     )
 )
 
 
-
-
-
-
 async def to_code(config):
-
-
 
     var = cg.new_Pvariable(
         config[CONF_ID]
     )
-
 
 
     await cg.register_component(
@@ -202,210 +96,58 @@ async def to_code(config):
     )
 
 
-
     await cover.register_cover(
         var,
         config
     )
 
 
-
-
-
-    #
-    # MOTOR
-    #
-
-
-    motor_conf = config[
-        CONF_MOTOR
-    ]
-
-
-
-    motor = cg.new_Pvariable(
-        cg.new_id(),
-        DualGPIOMotor
-    )
-
-
-
-
     open_pin = await cg.gpio_pin_expression(
-        motor_conf[
-            CONF_OPEN_PIN
-        ]
+        config[CONF_OPEN_PIN]
     )
-
 
 
     close_pin = await cg.gpio_pin_expression(
-        motor_conf[
-            CONF_CLOSE_PIN
-        ]
+        config[CONF_CLOSE_PIN]
     )
 
 
-
     cg.add(
-        motor.set_open_pin(
-            open_pin
-        )
-    )
-
-
-
-    cg.add(
-        motor.set_close_pin(
+        var.set_motor_pins(
+            open_pin,
             close_pin
         )
     )
 
 
+    if CONF_PRIMARY_SENSOR in config:
 
-    cg.add(
-        var.set_motor(
-            motor
+        primary = await cg.get_variable(
+            config[CONF_PRIMARY_SENSOR]
         )
-    )
-
-
-
-
-
-    #
-    # ANGLE SENSORS
-    #
-
-
-
-    if CONF_MPU_SENSOR in config:
 
         cg.add(
-            var.set_mpu_sensor(
-                config[
-                    CONF_MPU_SENSOR
-                ]
+            var.set_primary_sensor(
+                primary
             )
         )
 
 
+    if CONF_SECONDARY_SENSOR in config:
 
-
-    if CONF_HALL_SENSOR in config:
-
-        cg.add(
-            var.set_hall_sensor(
-                config[
-                    CONF_HALL_SENSOR
-                ]
-            )
+        secondary = await cg.get_variable(
+            config[CONF_SECONDARY_SENSOR]
         )
 
-
-
-
-
-
-    #
-    # SELECT
-    #
-
-
-    source_select = cg.new_Pvariable(
-        cg.new_id(),
-        AngleSourceSelect
-    )
-
-
-
-    await select.register_select(
-        source_select,
-        {
-            "options":
-            [
-                "AUTO",
-                "MPU6050",
-                "HALL",
-            ]
-        }
-    )
-
+        cg.add(
+            var.set_secondary_sensor(
+                secondary
+            )
+        )
 
 
     cg.add(
-        source_select.set_parent(
-            var
+        var.set_stall_timeout(
+            config[CONF_STALL_TIMEOUT]
         )
     )
-
-
-
-
-
-
-    #
-    # BUTTONS
-    #
-
-
-
-    buttons = [
-
-        (
-            CalibrationStartButton,
-            "Start calibration",
-            "start_calibration"
-        ),
-
-
-        (
-            SaveClosedButton,
-            "Save closed",
-            "save_closed_position"
-        ),
-
-
-        (
-            SaveOpenButton,
-            "Save open",
-            "save_open_position"
-        ),
-
-
-        (
-            ClearFaultButton,
-            "Clear fault",
-            "clear_fault"
-        ),
-
-    ]
-
-
-
-
-
-    for cls, name, method in buttons:
-
-
-        b = cg.new_Pvariable(
-            cg.new_id(),
-            cls
-        )
-
-
-
-        await button.register_button(
-            b,
-            {
-                "name": name
-            }
-        )
-
-
-
-        cg.add(
-            b.set_parent(
-                var
-            )
-        )

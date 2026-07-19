@@ -1,8 +1,8 @@
 #pragma once
 
 
-#include "esphome/core/component.h"
-#include "esphome/core/gpio.h"
+#include "esphome/core/hal.h"
+
 
 
 namespace esphome {
@@ -10,33 +10,56 @@ namespace jalouzee_blinds {
 
 
 
-enum class MotorDirection : uint8_t
+class DualGPIOMotor
 {
-    STOP = 0,
-    OPEN = 1,
-    CLOSE = 2
+
+
+public:
+
+
+    virtual ~DualGPIOMotor() = default;
+
+
+
+    virtual void setup()
+    {
+    }
+
+
+
+    virtual void open() = 0;
+
+
+
+    virtual void close() = 0;
+
+
+
+    virtual void stop() = 0;
+
+
+
 };
 
 
 
 
 
-class DualGPIOMotor
+
+
+
+
+class GPIOMotor :
+    public DualGPIOMotor
 {
+
 
 public:
 
 
-    DualGPIOMotor();
-
-
-
-    void setup();
-
-
 
     void set_open_pin(
-        InternalGPIOPin *pin
+        GPIOPin *pin
     )
     {
         open_pin_ = pin;
@@ -44,8 +67,10 @@ public:
 
 
 
+
+
     void set_close_pin(
-        InternalGPIOPin *pin
+        GPIOPin *pin
     )
     {
         close_pin_ = pin;
@@ -55,48 +80,41 @@ public:
 
 
 
-    void open();
 
-
-    void close();
-
-
-    void stop();
+    void setup() override;
 
 
 
-    MotorDirection direction()
-    {
-        return direction_;
-    }
+    void open() override;
 
 
 
-protected:
+    void close() override;
 
 
-    void write_state(
-        bool open,
-        bool close
-    );
+
+    void stop() override;
+
+
+
+
 
 
 
 protected:
 
 
-    InternalGPIOPin *open_pin_{nullptr};
-
-
-    InternalGPIOPin *close_pin_{nullptr};
+    GPIOPin *open_pin_{nullptr};
 
 
 
-    MotorDirection direction_ =
-        MotorDirection::STOP;
+    GPIOPin *close_pin_{nullptr};
+
 
 
 };
+
+
 
 
 
