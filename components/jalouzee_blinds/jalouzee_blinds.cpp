@@ -536,6 +536,104 @@ void JalouzeeBlinds::calibration_pressed()
 
 
 
+  /*
+   * Если мы уже собрали
+   * точки и ждём подтверждения
+   */
+
+  if(
+      calibration_.stage()
+      ==
+      CalibrationStage::WAIT_COMMIT
+  )
+  {
+
+
+    if(
+        calibration_.commit_requested()
+    )
+    {
+
+
+      const CalibrationData &pending =
+          calibration_.pending();
+
+
+
+
+
+      /*
+       * СНАЧАЛА сохраняем
+       */
+
+      if(
+          storage_.save(
+              pending
+          )
+      )
+      {
+
+
+        /*
+         * Только после успешной
+         * записи меняем рабочие
+         * параметры
+         */
+
+        calibration_.apply_pending();
+
+
+
+
+
+        motor_.set_encoder_sign(
+            pending.encoder_sign
+        );
+
+
+
+        sensors_.set_imu_sign(
+            pending.imu_sign
+        );
+
+
+
+
+
+        ESP_LOGI(
+            TAG,
+            "Calibration committed"
+        );
+
+      }
+      else
+      {
+
+        ESP_LOGE(
+            TAG,
+            "Calibration storage failed"
+        );
+
+      }
+
+
+    }
+
+
+    return;
+
+  }
+
+
+
+
+
+
+
+  /*
+   * Обычный переход
+   * по этапам калибровки
+   */
 
   CalibrationResult result =
       calibration_.next(
@@ -547,68 +645,60 @@ void JalouzeeBlinds::calibration_pressed()
 
 
 
-  if(
-      result ==
-      CalibrationResult::OK
-  )
+  switch(result)
   {
 
 
-    const CalibrationData &pending =
-        calibration_.pending();
-
-
-
-
-
-
-    /*
-     * Здесь единственное место
-     * записи новой калибровки
-     */
-
-    if(
-        storage_.save(
-            pending
-        )
-    )
-    {
-
-      calibration_.apply_pending();
-
-
-
-
-      motor_.set_encoder_sign(
-          pending.encoder_sign
-      );
-
-
-
-      sensors_.set_imu_sign(
-          pending.imu_sign
-      );
-
-
-
-
-      ESP_LOGI(
-          TAG,
-          "Calibration committed"
-      );
-
-
-    }
-    else
-    {
+    case CalibrationResult::INVALID_ANGLE_RANGE:
 
       ESP_LOGE(
           TAG,
-          "Calibration save failed"
+          "Calibration angle range invalid"
       );
 
-    }
+      break;
 
+
+
+
+
+    case CalibrationResult::INVALID_ENCODER_RANGE:
+
+      ESP_LOGE(
+          TAG,
+          "Calibration encoder range invalid"
+      );
+
+      break;
+
+
+
+
+
+    case CalibrationResult::OK:
+
+      /*
+       * Здесь OK означает:
+       *
+       * pending_ успешно создан
+       *
+       * НО сохранения ещё нет
+       */
+
+      ESP_LOGI(
+          TAG,
+          "Calibration data ready, waiting commit"
+      );
+
+      break;
+
+
+
+
+
+    default:
+
+      break;
 
   }
 
@@ -628,11 +718,9 @@ void JalouzeeBlinds::cancel_pressed()
   calibration_.cancel();
 
 
-
   ESP_LOGI(
       TAG,
       "Calibration cancelled"
-
   );
 
 }

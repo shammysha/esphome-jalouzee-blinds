@@ -10,11 +10,12 @@ namespace jalouzee_blinds {
 
 
 
+
+
 Calibration::Calibration()
 {
 
 }
-
 
 
 
@@ -31,6 +32,10 @@ void Calibration::start()
 
   pending_ =
       CalibrationData();
+
+
+  commit_requested_ =
+      false;
 
 
   stage_ =
@@ -51,16 +56,21 @@ CalibrationResult Calibration::next(
 )
 {
 
+
   switch(stage_)
   {
 
 
     case CalibrationStage::NONE:
+    {
 
       start();
 
-      return
-          CalibrationResult::NOT_READY;
+      return CalibrationResult::NOT_READY;
+
+    }
+
+
 
 
 
@@ -74,9 +84,9 @@ CalibrationResult Calibration::next(
           sensor.angle;
 
 
+
       runtime_.closed_encoder =
           sensor.encoder;
-
 
 
 
@@ -85,10 +95,10 @@ CalibrationResult Calibration::next(
 
 
 
-      return
-          CalibrationResult::NOT_READY;
+      return CalibrationResult::NOT_READY;
 
     }
+
 
 
 
@@ -104,6 +114,7 @@ CalibrationResult Calibration::next(
           sensor.angle;
 
 
+
       runtime_.open_encoder =
           sensor.encoder;
 
@@ -111,16 +122,19 @@ CalibrationResult Calibration::next(
 
 
 
+      CalibrationResult result =
+          build_pending();
+
+
+
       if(
-          build_pending()
-          ==
+          result ==
           CalibrationResult::OK
       )
       {
 
         stage_ =
             CalibrationStage::WAIT_COMMIT;
-
 
       }
       else
@@ -133,9 +147,7 @@ CalibrationResult Calibration::next(
 
 
 
-
-      return
-          CalibrationResult::NOT_READY;
+      return result;
 
     }
 
@@ -146,29 +158,59 @@ CalibrationResult Calibration::next(
 
 
 
+
     case CalibrationStage::WAIT_COMMIT:
+    {
+
 
       /*
-       * Повторное нажатие
+       * Здесь данные готовы.
        *
-       * означает:
-       *
-       * "подтвердить"
-       *
+       * Никакого сохранения.
        */
 
-      return
-          CalibrationResult::OK;
+      return CalibrationResult::NOT_READY;
 
-
+    }
 
 
   }
 
 
 
-  return
-      CalibrationResult::NOT_READY;
+  return CalibrationResult::NOT_READY;
+
+}
+
+
+
+
+
+
+
+
+
+bool Calibration::commit()
+{
+
+  if(
+      stage_ !=
+      CalibrationStage::WAIT_COMMIT
+  )
+  {
+
+    return false;
+
+  }
+
+
+
+  commit_requested_ =
+      true;
+
+
+
+  return true;
 
 }
 
@@ -189,7 +231,8 @@ CalibrationResult Calibration::build_pending()
 
 
   if(
-      result != CalibrationResult::OK
+      result !=
+      CalibrationResult::OK
   )
   {
 
@@ -201,35 +244,32 @@ CalibrationResult Calibration::build_pending()
 
 
 
-  CalibrationData data;
+
+  CalibrationData result_data;
 
 
-  data.valid =
+  result_data.valid =
       true;
 
 
 
 
 
-  data.closed_angle =
+  result_data.closed_angle =
       runtime_.closed_angle;
 
 
-
-  data.open_angle =
+  result_data.open_angle =
       runtime_.open_angle;
 
 
 
 
-
-
-  data.closed_encoder =
+  result_data.closed_encoder =
       runtime_.closed_encoder;
 
 
-
-  data.open_encoder =
+  result_data.open_encoder =
       runtime_.open_encoder;
 
 
@@ -237,33 +277,31 @@ CalibrationResult Calibration::build_pending()
 
 
 
-  data.encoder_range =
+  result_data.encoder_range =
       abs(
-          data.open_encoder -
-          data.closed_encoder
+          result_data.open_encoder -
+          result_data.closed_encoder
       );
 
 
 
 
 
-
-
   calculate_signs(
-      data
+      result_data
   );
 
 
 
 
 
+
   pending_ =
-      data;
+      result_data;
 
 
 
-  return
-      CalibrationResult::OK;
+  return CalibrationResult::OK;
 
 }
 
@@ -279,7 +317,6 @@ CalibrationResult Calibration::validate()
     const
 {
 
-
   if(
       fabs(
           runtime_.open_angle -
@@ -294,7 +331,6 @@ CalibrationResult Calibration::validate()
         CalibrationResult::INVALID_ANGLE_RANGE;
 
   }
-
 
 
 
@@ -320,8 +356,7 @@ CalibrationResult Calibration::validate()
 
 
 
-  return
-      CalibrationResult::OK;
+  return CalibrationResult::OK;
 
 }
 
@@ -339,14 +374,10 @@ void Calibration::calculate_signs(
 {
 
 
-  /*
-   * MPU направление
-   */
-
   data.imu_sign =
       (
-        data.open_angle >
-        data.closed_angle
+          data.open_angle >
+          data.closed_angle
       )
       ?
       1
@@ -358,15 +389,10 @@ void Calibration::calculate_signs(
 
 
 
-
-  /*
-   * Encoder направление
-   */
-
   data.encoder_sign =
       (
-        data.open_encoder >
-        data.closed_encoder
+          data.open_encoder >
+          data.closed_encoder
       )
       ?
       1
@@ -393,6 +419,10 @@ void Calibration::cancel()
       CalibrationData();
 
 
+  commit_requested_ =
+      false;
+
+
 
   stage_ =
       CalibrationStage::NONE;
@@ -414,8 +444,15 @@ void Calibration::apply_pending()
       pending_;
 
 
+
   pending_ =
       CalibrationData();
+
+
+
+  commit_requested_ =
+      false;
+
 
 
   stage_ =
@@ -524,6 +561,7 @@ void Calibration::reset_runtime()
       CalibrationRuntime();
 
 }
+
 
 
 

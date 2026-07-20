@@ -1,181 +1,137 @@
 #pragma once
 
-
-
 #include "types.h"
 
-
-
 namespace esphome {
-namespace jalouzee {
+  namespace jalouzee_blinds {
 
+    class Calibration {
 
+      public:
 
-class Calibration
-{
 
 
- public:
+        Calibration();
 
+        /*
+         * Запуск новой калибровки
+         */
 
-  Calibration();
+        void start();
 
+        /*
+         * Обработка очередного
+         * шага калибровки
+         */
 
+        CalibrationResult next(const SensorData &sensor);
 
+        /*
+         * Отмена в любой момент
+         *
+         * Старые данные остаются
+         */
 
-  /*
-   * Вход в режим
-   */
-  void start();
+        void cancel();
 
+        /*
+         * Применение подготовленной
+         * калибровки после успешной
+         * записи Storage
+         */
 
+        void apply_pending();
 
+        /*
+         * Загрузка готовой
+         * калибровки из Storage
+         */
 
-  /*
-   * Следующее нажатие
-   * основной кнопки
-   */
-  CalibrationResult next(
-      const SensorData &sensor
-  );
+        void load(const CalibrationData &data);
 
+        bool commit();
 
+        /*
+         * Состояние
+         */
 
+        bool active() const;
 
-  /*
-   * Отмена
-   */
-  void cancel();
+        CalibrationStage stage() const;
 
+        /*
+         * Рабочая калибровка
+         */
 
+        const CalibrationData& data() const;
 
+        /*
+         * Подготовленная
+         *
+         * Ещё НЕ сохранена
+         */
 
+        const CalibrationData& pending() const;
 
-  /*
-   * Получить рабочую
-   * калибровку
-   */
-  const CalibrationData &
-  data() const;
+      protected:
 
+        /*
+         * Проверка собранных
+         * данных
+         */
 
+        CalibrationResult validate() const;
 
+        /*
+         * Создание pending_
+         */
 
-  /*
-   * Получить подготовленную
-   * к сохранению
-   */
-  const CalibrationData &
-  pending() const;
+        CalibrationResult build_pending();
 
+        /*
+         * Расчёт направления
+         */
 
+        void calculate_signs(CalibrationData &data);
 
+        /*
+         * Очистка временных
+         * данных
+         */
 
-  /*
-   * Сделать pending
-   * рабочей
-   */
-  void apply_pending();
+        void reset_runtime();
 
+        /*
+         * Текущая рабочая
+         * калибровка
+         *
+         * Только она считается
+         * действительной
+         */
 
+        CalibrationData calibration_;
 
+        /*
+         * Новая калибровка
+         *
+         * Ожидает подтверждения
+         */
 
-  /*
-   * Загрузка из NVS
-   */
-  void load(
-      const CalibrationData &data
-  );
+        CalibrationData pending_;
 
+        /*
+         * Временные точки
+         *
+         * Вообще не сохраняются
+         */
 
+        CalibrationRuntime runtime_;
 
+        CalibrationStage stage_ = CalibrationStage::NONE;
 
+        bool commit_requested_ = false;
 
-  CalibrationStage stage() const;
+    };
 
-
-
-  bool active() const;
-
-
-
-
-
- protected:
-
-
-  /*
-   * Подготовка данных
-   */
-  CalibrationResult commit();
-
-
-
-
-  /*
-   * Проверка
-   */
-  CalibrationResult validate()
-      const;
-
-
-
-
-
-  /*
-   * Определение сторон
-   */
-  void calculate_signs(
-      CalibrationData &data
-  ) const;
-
-
-
-
-  void reset_runtime();
-
-
-
-
-
- protected:
-
-
-
-
-  /*
-   * Последняя рабочая
-   */
-  CalibrationData calibration_;
-
-
-
-
-  /*
-   * Новая, но ещё
-   * не применённая
-   */
-  CalibrationData pending_data_;
-
-
-
-
-  /*
-   * Текущий процесс
-   */
-  CalibrationRuntime runtime_;
-
-
-
-
-  CalibrationStage stage_ =
-      CalibrationStage::NONE;
-
-
-
-};
-
-
-
-} // namespace jalouzee
+  } // namespace jalouzee_blinds
 } // namespace esphome
