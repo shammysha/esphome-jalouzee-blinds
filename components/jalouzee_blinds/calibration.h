@@ -1,54 +1,125 @@
 #pragma once
 
-#include <cstdint>
+#include "types.h"
 
 namespace esphome {
-  namespace jalouzee_blinds {
+namespace jalouzee {
 
-    enum class CalibrationState : uint8_t {
 
-      IDLE = 0,
+class Calibration {
 
-      WAIT_CLOSED = 1,
+ public:
 
-      WAIT_OPEN = 2,
+  Calibration();
 
-      COMPLETE = 3
 
-    };
+  /*
+   * Запуск режима калибровки
+   *
+   * Если уже есть активная калибровка,
+   * она не изменяется.
+   */
+  void start();
 
-    class Calibration {
 
-      public:
-        void start();
-        void reset();
-        void restore(float closed, float open, bool inverted);
+  /*
+   * Нажатие основной кнопки CAL
+   *
+   * Переход:
+   *
+   * WAIT_CLOSED
+   *        |
+   *        v
+   * WAIT_OPEN
+   *        |
+   *        v
+   * COMMIT
+   */
+  bool next(
+      const SensorData &sensor
+  );
 
-        void set_closed_angle(float angle);
 
-        void set_open_angle(float angle);
+  /*
+   * Немедленная отмена
+   *
+   * Старые настройки остаются.
+   */
+  void cancel();
 
-        bool is_complete() const;
 
-        CalibrationState state() const;
+  /*
+   * Завершение калибровки
+   *
+   * Проверяет данные и
+   * формирует новую CalibrationData
+   */
+  bool commit();
 
-        float closed_angle() const;
 
-        float open_angle() const;
+  /*
+   * Получить текущий этап
+   */
+  CalibrationStage stage() const;
 
-        bool inverted() const;
 
-      protected:
+  /*
+   * Активна ли калибровка
+   */
+  bool active() const;
 
-        CalibrationState state_ { CalibrationState::IDLE };
 
-        float closed_angle_ { 0.0f };
+  /*
+   * Получить текущие рабочие данные
+   */
+  const CalibrationData &data() const;
 
-        float open_angle_ { 0.0f };
 
-        bool inverted_ { false };
+  /*
+   * Установить сохранённые данные
+   *
+   * вызывается при старте ESP
+   */
+  void load(
+      const CalibrationData &data
+  );
 
-    };
 
-  }  // namespace jalouzee_blinds
+ protected:
+
+
+  /*
+   * Проверка корректности
+   */
+  bool validate() const;
+
+
+  /*
+   * Определение направления изменения
+   */
+  void calculate_signs();
+
+
+  /*
+   * Текущая рабочая калибровка
+   *
+   * Меняется только после commit()
+   */
+  CalibrationData calibration_;
+
+
+  /*
+   * Временные данные процесса
+   */
+  CalibrationRuntime runtime_;
+
+
+  CalibrationStage stage_ =
+      CalibrationStage::NONE;
+
+
+};
+
+
+}  // namespace jalouzee
 }  // namespace esphome

@@ -1,143 +1,303 @@
 #include "calibration.h"
 
 #include <cmath>
+#include <cstdlib>
 
-#include "esphome/core/log.h"
 
 namespace esphome {
-  namespace jalouzee_blinds {
+namespace jalouzee {
 
-    static const char *const TAG = "jalouzee_blinds.calibration";
 
-    void Calibration::start() {
+Calibration::Calibration()
+{
+}
 
-      state_ = CalibrationState::WAIT_CLOSED;
 
-      closed_angle_ = 0.0f;
+void Calibration::start()
+{
+  /*
+   * Старые данные не трогаем.
+   *
+   * Начинаем новый временный цикл.
+   */
 
-      open_angle_ = 0.0f;
+  runtime_ = CalibrationRuntime();
 
-      inverted_ = false;
+  stage_ = CalibrationStage::WAIT_CLOSED;
+}
 
-      ESP_LOGI(TAG, "Calibration started. Waiting for CLOSED position");
 
-    }
+bool Calibration::next(
+    const SensorData &sensor
+)
+{
+  switch (stage_)
+  {
 
-    void Calibration::reset() {
-
-      state_ = CalibrationState::IDLE;
-
-      closed_angle_ = 0.0f;
-
-      open_angle_ = 0.0f;
-
-      inverted_ = false;
-
-    }
-
-    void Calibration::set_closed_angle(float angle) {
-
-      if (state_ != CalibrationState::WAIT_CLOSED) {
-        return;
-      }
-
-      closed_angle_ = angle;
-
-      state_ = CalibrationState::WAIT_OPEN;
-
-      ESP_LOGI(TAG, "Closed angle stored: %.2f", closed_angle_);
-
-    }
-
-    void Calibration::set_open_angle(float angle) {
-
-      if (state_ != CalibrationState::WAIT_OPEN) {
-        return;
-      }
-
-      open_angle_ = angle;
-
+    case CalibrationStage::WAIT_CLOSED:
+    {
       /*
-       * Determine direction.
+       * Первое подтверждение положения.
        *
-       * Normal installation:
-       *
-       * closed < open
-       *
-       *
-       * Mirrored installation:
-       *
-       * closed > open
-       *
+       * Только RAM.
        */
 
-      if (open_angle_ < closed_angle_) {
+      runtime_.closed_angle =
+          sensor.angle;
 
-        inverted_ = true;
+      runtime_.closed_encoder =
+          sensor.encoder;
 
-      } else {
 
-        inverted_ = false;
+      stage_ =
+          CalibrationStage::WAIT_OPEN;
 
-      }
 
-      state_ = CalibrationState::COMPLETE;
-
-      ESP_LOGI(TAG, "Open angle stored: %.2f", open_angle_);
-
-      ESP_LOGI(TAG, "Direction: %s", inverted_ ? "INVERTED" : "NORMAL");
-
+      return true;
     }
 
-    bool Calibration::is_complete() const {
 
-      if (state_ != CalibrationState::COMPLETE) {
-        return false;
-      }
-
+    case CalibrationStage::WAIT_OPEN:
+    {
       /*
-       * Protection against invalid calibration.
+       * Второе подтверждение положения.
+       *
+       * Только RAM.
        */
 
-      return fabs(open_angle_ - closed_angle_) > 1.0f;
+      runtime_.open_angle =
+          sensor.angle;
 
+      runtime_.open_encoder =
+          sensor.encoder;
+
+
+      stage_ =
+          CalibrationStage::READY_TO_SAVE;
+
+
+      return true;
     }
 
-    CalibrationState Calibration::state() const {
 
-      return state_;
+    case CalibrationStage::READY_TO_SAVE:
+    {
+      /*
+       * Третье нажатие.
+       *
+       * Пытаемся завершить.
+       */
 
+      return commit();
     }
 
-    float Calibration::closed_angle() const {
 
-      return closed_angle_;
+    default:
 
-    }
+      return false;
+  }
+}
 
-    float Calibration::open_angle() const {
 
-      return open_angle_;
 
-    }
+void Calibration::cancel()
+{
+  /*
+   * Важно:
+   *
+   * calibration_ НЕ изменяется.
+   *
+   * Пользователь просто
+   * выбросил временные данные.
+   */
 
-    bool Calibration::inverted() const {
+  runtime_ =
+      CalibrationRuntime();
 
-      return inverted_;
+  stage_ =
+      CalibrationStage::NONE;
+}
 
-    }
 
-    void Calibration::restore(float closed, float open, bool inverted) {
 
-      closed_angle_ = closed;
+bool Calibration::commit()
+{
 
-      open_angle_ = open;
+  if (!validate())
+  {
+    cancel();
 
-      inverted_ = inverted;
+    return false;
+  }
 
-      state_ = CalibrationState::COMPLETE;
 
-    }
+  CalibrationData new_data;
 
-  }  // namespace jalouzee_blinds
-}  // namespace esphome
+
+  new_data.valid = true;
+
+
+  new_data.closed_angle =
+      runtime_.closed_angle;
+
+
+  new_data.open_angle =
+      runtime_.open_angle;
+
+
+
+  new_data.encoder_range =
+      std::abs(
+          runtime_.open_encoder -
+          runtime_.closed_encoder
+      );
+
+
+  /*
+   * Определяем направления
+   */
+
+  if (runtime_.open_angle >
+      runtime_.closed_angle)
+  {
+    new_data.imu_sign = 1;
+  }
+  else
+  {
+    new_data.imu_sign = -1;
+  }
+
+
+
+  if (runtime_.open_encoder >
+      runtime_.closed_encoder)
+  {
+    new_data.encoder_sign = 1;
+  }
+  else
+  {
+    new_data.encoder_sign = -1;
+  }
+
+
+
+  /*
+   * Только здесь меняем
+   * рабочую калибровку.
+   */
+
+  calibration_ =
+      new_data;
+
+
+  runtime_ =
+      CalibrationRuntime();
+
+
+  stage_ =
+      CalibrationStage::NONE;
+
+
+  return true;
+}
+
+
+
+bool Calibration::validate() const
+{
+
+  /*
+   * Проверка углового диапазона
+   */
+
+  float angle_range =
+      std::abs(
+          runtime_.open_angle -
+          runtime_.closed_angle
+      );
+
+
+  if (angle_range < 5.0f)
+  {
+    return false;
+  }
+
+
+  /*
+   * Проверка энкодера
+   */
+
+  int32_t encoder_range =
+      std::abs(
+          runtime_.open_encoder -
+          runtime_.closed_encoder
+      );
+
+
+  /*
+   * Минимум условный.
+   *
+   * Потом можно вынести
+   * в настройки.
+   */
+
+  if (encoder_range < 10)
+  {
+    return false;
+  }
+
+
+  return true;
+}
+
+
+
+CalibrationStage Calibration::stage() const
+{
+  return stage_;
+}
+
+
+
+bool Calibration::active() const
+{
+  return
+      stage_ != CalibrationStage::NONE;
+}
+
+
+
+const CalibrationData &
+Calibration::data() const
+{
+  return calibration_;
+}
+
+
+
+void Calibration::load(
+    const CalibrationData &data
+)
+{
+  calibration_ =
+      data;
+}
+
+
+
+void Calibration::calculate_signs()
+{
+  /*
+   * Оставлено отдельной функцией
+   *
+   * для дальнейшего расширения.
+   *
+   * Например:
+   * проверка по нескольким движениям.
+   */
+}
+
+
+
+} // namespace jalouzee
+} // namespace esphome
