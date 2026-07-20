@@ -1,158 +1,69 @@
 #pragma once
 
-
 #include "types.h"
 
-
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
+    class MotorDriver;
 
+    class Sensors {
 
-class MotorDriver;
+      public:
 
+        explicit Sensors(MotorDriver *motor);
 
+        void setup();
 
-class Sensors
-{
+        void update();
 
+        /*
+         * MPU6050
+         */
 
- public:
+        void set_mpu_angle(float angle);
 
+        void set_imu_sign(int8_t sign);
 
-  explicit Sensors(
-      MotorDriver *motor
-  );
+        SensorData data() const;
 
+        bool position_valid() const;
 
+      protected:
 
-  void setup();
+        void update_encoder_state();
 
+        void calculate_position();
 
-  void update();
+      protected:
 
+        MotorDriver *motor_ = nullptr;
 
+        /*
+         * MPU
+         */
 
+        float mpu_angle_ = 0;
 
+        int8_t imu_sign_ = 1;
 
+        bool mpu_valid_ = false;
 
-  /*
-   * MPU6050
-   */
+        /*
+         * Encoder
+         */
 
-  void set_mpu_angle(
-      float angle
-  );
+        int32_t encoder_position_ = 0;
 
+        bool encoder_valid_ = false;
 
+        /*
+         * Общая оценка
+         */
 
-  void set_imu_sign(
-      int8_t sign
-  );
+        float position_ = 0;
 
+    };
 
-
-
-
-
-
-  SensorData data()
-      const;
-
-
-
-
-
-
-  bool position_valid()
-      const;
-
-
-
-
-
-
- protected:
-
-
-
-  void update_encoder_state();
-
-
-
-  void calculate_position();
-
-
-
-
-
-
-
- protected:
-
-
-
-  MotorDriver *motor_ =
-      nullptr;
-
-
-
-
-
-  /*
-   * MPU
-   */
-
-  float mpu_angle_ =
-      0;
-
-
-
-  int8_t imu_sign_ =
-      1;
-
-
-
-  bool mpu_valid_ =
-      false;
-
-
-
-
-
-
-
-  /*
-   * Encoder
-   */
-
-  int32_t encoder_position_ =
-      0;
-
-
-
-  bool encoder_valid_ =
-      false;
-
-
-
-
-
-
-
-  /*
-   * Общая оценка
-   */
-
-  float position_ =
-      0;
-
-
-
-};
-
-
-
-
-} // namespace jalouzee_blinds
+  } // namespace jalouzee_blinds
 } // namespace esphome

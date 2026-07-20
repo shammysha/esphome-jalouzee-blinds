@@ -1,120 +1,51 @@
 #pragma once
 
-
 #include "types.h"
 
-
-
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
+    class MotorDriver;
+    class Sensors;
+    class Calibration;
 
+    class PositionController {
 
-class MotorDriver;
-class Sensors;
-class Calibration;
+      public:
 
+        PositionController(Sensors *sensors, Calibration *calibration, MotorDriver *motor);
 
+        void update();
 
-class PositionController
-{
+        void set_position(float position);
 
+        void stop();
 
- public:
+        float position() const;
 
+      protected:
 
-  PositionController(
-      Sensors *sensors,
-      Calibration *calibration,
-      MotorDriver *motor
-  );
+        bool position_available() const;
 
+        float calculate_position() const;
 
+        void move_to_target();
 
-  void update();
+      protected:
 
+        Sensors *sensors_ = nullptr;
 
+        Calibration *calibration_ = nullptr;
 
+        MotorDriver *motor_ = nullptr;
 
-  void set_position(
-      float position
-  );
+        float target_position_ = 0;
 
+        float current_position_ = 0;
 
+        bool moving_ = false;
 
-  void stop();
+    };
 
-
-
-
-  float position()
-      const;
-
-
-
-
-
-
- protected:
-
-
-  bool position_available()
-      const;
-
-
-
-  float calculate_position()
-      const;
-
-
-
-  void move_to_target();
-
-
-
-
-
-
- protected:
-
-
-  Sensors *sensors_ =
-      nullptr;
-
-
-  Calibration *calibration_ =
-      nullptr;
-
-
-  MotorDriver *motor_ =
-      nullptr;
-
-
-
-
-
-
-  float target_position_ =
-      0;
-
-
-
-  float current_position_ =
-      0;
-
-
-
-
-
-  bool moving_ =
-      false;
-
-
-
-};
-
-
-
-
-} // namespace jalouzee_blinds
+  } // namespace jalouzee_blinds
 } // namespace esphome

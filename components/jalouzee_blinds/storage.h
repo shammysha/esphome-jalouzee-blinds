@@ -1,93 +1,47 @@
 #pragma once
 
-
 #include "types.h"
 
-
-
 namespace esphome {
-namespace jalouzee_blinds {
+  namespace jalouzee_blinds {
 
+    class Storage {
 
+      public:
 
-class Storage
-{
+        Storage();
 
+        /*
+         * Инициализация
+         */
+        void setup();
 
- public:
+        /*
+         * Загрузка последней
+         * подтвержденной калибровки
+         */
 
+        bool load(CalibrationData &data);
 
-  Storage();
+        /*
+         * Сохранение новой
+         *
+         * Вызывается только
+         * после завершения
+         * калибровки
+         */
 
+        bool save(const CalibrationData &data);
 
+      protected:
 
+        uint32_t checksum(const CalibrationData &data);
 
+      protected:
 
-  /*
-   * Инициализация
-   */
-  void setup();
+        static constexpr uint32_t MAGIC = 0x4A4C5A42; // "JLZB"
 
+    };
 
-
-
-
-
-  /*
-   * Загрузка последней
-   * подтвержденной калибровки
-   */
-
-  bool load(
-      CalibrationData &data
-  );
-
-
-
-
-
-
-
-  /*
-   * Сохранение новой
-   *
-   * Вызывается только
-   * после завершения
-   * калибровки
-   */
-
-  bool save(
-      const CalibrationData &data
-  );
-
-
-
-
-
-
- protected:
-
-
-  uint32_t checksum(
-      const CalibrationData &data
-  );
-
-
-
-
-
- protected:
-
-
-  static constexpr uint32_t MAGIC =
-      0x4A4C5A42; // "JLZB"
-
-
-
-};
-
-
-
-
-} // namespace jalouzee_blinds
+  } // namespace jalouzee_blinds
 } // namespace esphome

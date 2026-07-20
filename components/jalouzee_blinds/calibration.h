@@ -9,8 +9,6 @@ namespace esphome {
 
       public:
 
-
-
         Calibration();
 
         /*
