@@ -69,7 +69,11 @@ CONFIG_SCHEMA = (
             }),
         }
     )
-    .extend(cv.COMPONENT_SCHEMA)
+    .extend(
+        cover.cover_schema(
+            JalouzeeBlinds
+        )
+    )
 )
 
 
