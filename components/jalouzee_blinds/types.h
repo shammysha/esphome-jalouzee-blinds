@@ -1,149 +1,282 @@
 #pragma once
 
+
 #include <cstdint>
 
+
+
 namespace esphome {
-namespace jalouzee {
+namespace jalouzee_blinds {
 
-//
-// Общее состояние компонента
-//
-enum class SystemState : uint8_t {
-  IDLE,          // ожидание
-  MOVING,        // выполняется перемещение
-  CALIBRATION,   // режим калибровки
-  ERROR          // критическая ошибка
+
+
+/*
+ * Состояние основного автомата
+ */
+
+enum class SystemState : uint8_t
+{
+
+  IDLE = 0,
+
+  MOVING_OPEN,
+
+  MOVING_CLOSE,
+
+  CALIBRATION,
+
+  ERROR
+
 };
 
-//
-// Направление движения
-//
-enum class Direction : int8_t {
-  STOP  = 0,
-  OPEN  = 1,
-  CLOSE = -1
-};
 
-//
-// Режим работы
-//
-enum class OperationMode : uint8_t {
-  NORMAL,        // оба датчика исправны
-  IMU_ONLY,      // только MPU6050
-  ENCODER_ONLY,  // только энкодер
-  DEGRADED       // работа в деградированном режиме
-};
 
-//
-// Этап калибровки
-//
-enum class CalibrationStage : uint8_t {
-  NONE,
+
+
+
+
+
+/*
+ * Этапы калибровки
+ *
+ * Важно:
+ * данные здесь временные.
+ * NVS на этих этапах не меняется.
+ */
+
+enum class CalibrationStage : uint8_t
+{
+
+  NONE = 0,
+
 
   WAIT_CLOSED,
-  CLOSED_STORED,
+
 
   WAIT_OPEN,
-  READY_TO_SAVE
+
+
+  WAIT_COMMIT
+
 };
 
-//
-// Состояние датчиков
-//
-struct SensorStatus {
 
-  bool imu_ok = false;
 
-  bool encoder_ok = false;
 
-  bool motor_ok = true;
 
-  float imu_confidence = 0.0f;
 
-  float encoder_confidence = 0.0f;
+
+
+
+/*
+ * Результат операции калибровки
+ */
+
+enum class CalibrationResult : uint8_t
+{
+
+  NOT_READY = 0,
+
+
+  OK,
+
+
+  INVALID_ANGLE_RANGE,
+
+
+  INVALID_ENCODER_RANGE,
+
+
+  INVALID_SENSOR_DATA
+
 };
 
-//
-// Текущие данные датчиков
-//
-struct SensorData {
 
-  // Абсолютный угол ламели (градусы)
-  float angle = 0.0f;
 
-  // Текущее положение энкодера
-  // (от момента включения ESP)
-  int32_t encoder = 0;
 
-  // Скорость вращения
-  float speed = 0.0f;
 
-  uint32_t timestamp = 0;
-};
 
-//
-// Постоянная калибровка
-//
-struct CalibrationData {
+
+
+
+/*
+ * Рабочая калибровка
+ *
+ * Только эти данные считаются
+ * действующими.
+ *
+ * Именно они сохраняются в NVS.
+ */
+
+struct CalibrationData
+{
 
   bool valid = false;
 
-  //
-  // Абсолютные углы ламели
-  //
 
-  float closed_angle = 0.0f;
 
-  float open_angle = 0.0f;
 
-  //
-  // Количество импульсов между
-  // крайними положениями
-  //
+  /*
+   * MPU
+   */
 
-  int32_t encoder_range = 0;
+  float closed_angle = 0;
 
-  //
-  // Направление изменения
-  // +1 или -1
-  //
+  float open_angle = 0;
 
-  int8_t imu_sign = 1;
 
-  int8_t encoder_sign = 1;
-};
 
-//
-// Временные данные калибровки
-//
-struct CalibrationRuntime {
 
-  CalibrationStage stage =
-      CalibrationStage::NONE;
-
-  float closed_angle = 0.0f;
-
-  float open_angle = 0.0f;
+  /*
+   * Encoder
+   */
 
   int32_t closed_encoder = 0;
 
   int32_t open_encoder = 0;
+
+
+
+  int32_t encoder_range = 0;
+
+
+
+
+
+  /*
+   * Коррекция установки
+   *
+   * Мотор/MPU могут быть:
+   *
+   * слева
+   * справа
+   *
+   */
+
+  int8_t encoder_sign = 1;
+
+  int8_t imu_sign = 1;
+
+
 };
 
-//
-// Целевое движение
-//
-struct MotionTarget {
 
-  float target_position = 0.0f;
 
-  float target_angle = 0.0f;
 
-  Direction direction =
-      Direction::STOP;
 
-  bool active = false;
+
+
+
+
+/*
+ * Временные данные
+ *
+ * Живут только во время
+ * процесса калибровки.
+ *
+ * В NVS никогда не попадают.
+ */
+
+struct CalibrationRuntime
+{
+
+  float closed_angle = 0;
+
+  float open_angle = 0;
+
+
+
+  int32_t closed_encoder = 0;
+
+  int32_t open_encoder = 0;
+
+
 };
 
-}  // namespace jalouzee
-}  // namespace esphome
+
+
+
+
+
+
+
+
+/*
+ * Состояние датчиков
+ *
+ * Передаётся между слоями.
+ */
+
+struct SensorData
+{
+
+
+  /*
+   * Итоговая оценка положения
+   */
+
+  float angle = 0;
+
+
+
+
+
+  /*
+   * Raw encoder
+   */
+
+  int32_t encoder = 0;
+
+
+
+
+
+  /*
+   * Доступность источников
+   */
+
+  bool mpu_valid = false;
+
+
+  bool encoder_valid = false;
+
+
+
+};
+
+
+
+
+
+
+
+
+
+/*
+ * Состояние движения
+ */
+
+struct MotionState
+{
+
+  bool moving = false;
+
+
+  int8_t direction = 0;
+
+
+  float target_position = 0;
+
+
+};
+
+
+
+
+
+
+
+
+
+} // namespace jalouzee_blinds
+} // namespace esphome

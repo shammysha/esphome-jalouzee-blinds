@@ -1,125 +1,181 @@
 #pragma once
 
+
+
 #include "types.h"
+
+
 
 namespace esphome {
 namespace jalouzee {
 
 
-class Calibration {
+
+class Calibration
+{
+
 
  public:
+
 
   Calibration();
 
 
+
+
   /*
-   * Запуск режима калибровки
-   *
-   * Если уже есть активная калибровка,
-   * она не изменяется.
+   * Вход в режим
    */
   void start();
 
 
+
+
   /*
-   * Нажатие основной кнопки CAL
-   *
-   * Переход:
-   *
-   * WAIT_CLOSED
-   *        |
-   *        v
-   * WAIT_OPEN
-   *        |
-   *        v
-   * COMMIT
+   * Следующее нажатие
+   * основной кнопки
    */
-  bool next(
+  CalibrationResult next(
       const SensorData &sensor
   );
 
 
+
+
   /*
-   * Немедленная отмена
-   *
-   * Старые настройки остаются.
+   * Отмена
    */
   void cancel();
 
 
+
+
+
   /*
-   * Завершение калибровки
-   *
-   * Проверяет данные и
-   * формирует новую CalibrationData
+   * Получить рабочую
+   * калибровку
    */
-  bool commit();
+  const CalibrationData &
+  data() const;
+
+
 
 
   /*
-   * Получить текущий этап
+   * Получить подготовленную
+   * к сохранению
    */
-  CalibrationStage stage() const;
+  const CalibrationData &
+  pending() const;
+
+
 
 
   /*
-   * Активна ли калибровка
+   * Сделать pending
+   * рабочей
    */
-  bool active() const;
+  void apply_pending();
+
+
 
 
   /*
-   * Получить текущие рабочие данные
-   */
-  const CalibrationData &data() const;
-
-
-  /*
-   * Установить сохранённые данные
-   *
-   * вызывается при старте ESP
+   * Загрузка из NVS
    */
   void load(
       const CalibrationData &data
   );
 
 
+
+
+
+  CalibrationStage stage() const;
+
+
+
+  bool active() const;
+
+
+
+
+
  protected:
 
 
   /*
-   * Проверка корректности
+   * Подготовка данных
    */
-  bool validate() const;
+  CalibrationResult commit();
+
+
 
 
   /*
-   * Определение направления изменения
+   * Проверка
    */
-  void calculate_signs();
+  CalibrationResult validate()
+      const;
+
+
+
 
 
   /*
-   * Текущая рабочая калибровка
-   *
-   * Меняется только после commit()
+   * Определение сторон
+   */
+  void calculate_signs(
+      CalibrationData &data
+  ) const;
+
+
+
+
+  void reset_runtime();
+
+
+
+
+
+ protected:
+
+
+
+
+  /*
+   * Последняя рабочая
    */
   CalibrationData calibration_;
 
 
+
+
   /*
-   * Временные данные процесса
+   * Новая, но ещё
+   * не применённая
+   */
+  CalibrationData pending_data_;
+
+
+
+
+  /*
+   * Текущий процесс
    */
   CalibrationRuntime runtime_;
+
+
 
 
   CalibrationStage stage_ =
       CalibrationStage::NONE;
 
 
+
 };
 
 
-}  // namespace jalouzee
-}  // namespace esphome
+
+} // namespace jalouzee
+} // namespace esphome

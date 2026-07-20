@@ -1,277 +1,433 @@
 #include "calibration.h"
 
+
 #include <cmath>
-#include <cstdlib>
+
 
 
 namespace esphome {
-namespace jalouzee {
+namespace jalouzee_blinds {
+
 
 
 Calibration::Calibration()
 {
+
 }
+
+
+
+
+
+
+
 
 
 void Calibration::start()
 {
-  /*
-   * Старые данные не трогаем.
-   *
-   * Начинаем новый временный цикл.
-   */
 
-  runtime_ = CalibrationRuntime();
+  reset_runtime();
 
-  stage_ = CalibrationStage::WAIT_CLOSED;
+
+  pending_ =
+      CalibrationData();
+
+
+  stage_ =
+      CalibrationStage::WAIT_CLOSED;
+
 }
 
 
-bool Calibration::next(
+
+
+
+
+
+
+
+CalibrationResult Calibration::next(
     const SensorData &sensor
 )
 {
-  switch (stage_)
+
+  switch(stage_)
   {
+
+
+    case CalibrationStage::NONE:
+
+      start();
+
+      return
+          CalibrationResult::NOT_READY;
+
+
+
+
 
     case CalibrationStage::WAIT_CLOSED:
     {
-      /*
-       * Первое подтверждение положения.
-       *
-       * Только RAM.
-       */
+
 
       runtime_.closed_angle =
           sensor.angle;
 
+
       runtime_.closed_encoder =
           sensor.encoder;
+
+
 
 
       stage_ =
           CalibrationStage::WAIT_OPEN;
 
 
-      return true;
+
+      return
+          CalibrationResult::NOT_READY;
+
     }
+
+
+
+
+
 
 
     case CalibrationStage::WAIT_OPEN:
     {
-      /*
-       * Второе подтверждение положения.
-       *
-       * Только RAM.
-       */
+
 
       runtime_.open_angle =
           sensor.angle;
+
 
       runtime_.open_encoder =
           sensor.encoder;
 
 
-      stage_ =
-          CalibrationStage::READY_TO_SAVE;
 
 
-      return true;
+
+      if(
+          build_pending()
+          ==
+          CalibrationResult::OK
+      )
+      {
+
+        stage_ =
+            CalibrationStage::WAIT_COMMIT;
+
+
+      }
+      else
+      {
+
+        stage_ =
+            CalibrationStage::NONE;
+
+      }
+
+
+
+
+      return
+          CalibrationResult::NOT_READY;
+
     }
 
 
-    case CalibrationStage::READY_TO_SAVE:
-    {
+
+
+
+
+
+
+    case CalibrationStage::WAIT_COMMIT:
+
       /*
-       * Третье нажатие.
+       * Повторное нажатие
        *
-       * Пытаемся завершить.
+       * означает:
+       *
+       * "подтвердить"
+       *
        */
 
-      return commit();
-    }
+      return
+          CalibrationResult::OK;
 
 
-    default:
 
-      return false;
+
   }
+
+
+
+  return
+      CalibrationResult::NOT_READY;
+
 }
+
+
+
+
+
+
+
+
+
+CalibrationResult Calibration::build_pending()
+{
+
+  CalibrationResult result =
+      validate();
+
+
+
+  if(
+      result != CalibrationResult::OK
+  )
+  {
+
+    return result;
+
+  }
+
+
+
+
+
+  CalibrationData data;
+
+
+  data.valid =
+      true;
+
+
+
+
+
+  data.closed_angle =
+      runtime_.closed_angle;
+
+
+
+  data.open_angle =
+      runtime_.open_angle;
+
+
+
+
+
+
+  data.closed_encoder =
+      runtime_.closed_encoder;
+
+
+
+  data.open_encoder =
+      runtime_.open_encoder;
+
+
+
+
+
+
+  data.encoder_range =
+      abs(
+          data.open_encoder -
+          data.closed_encoder
+      );
+
+
+
+
+
+
+
+  calculate_signs(
+      data
+  );
+
+
+
+
+
+  pending_ =
+      data;
+
+
+
+  return
+      CalibrationResult::OK;
+
+}
+
+
+
+
+
+
+
+
+
+CalibrationResult Calibration::validate()
+    const
+{
+
+
+  if(
+      fabs(
+          runtime_.open_angle -
+          runtime_.closed_angle
+      )
+      <
+      5.0f
+  )
+  {
+
+    return
+        CalibrationResult::INVALID_ANGLE_RANGE;
+
+  }
+
+
+
+
+
+
+
+  if(
+      abs(
+          runtime_.open_encoder -
+          runtime_.closed_encoder
+      )
+      <
+      10
+  )
+  {
+
+    return
+        CalibrationResult::INVALID_ENCODER_RANGE;
+
+  }
+
+
+
+
+
+  return
+      CalibrationResult::OK;
+
+}
+
+
+
+
+
+
+
+
+
+void Calibration::calculate_signs(
+    CalibrationData &data
+)
+{
+
+
+  /*
+   * MPU направление
+   */
+
+  data.imu_sign =
+      (
+        data.open_angle >
+        data.closed_angle
+      )
+      ?
+      1
+      :
+      -1;
+
+
+
+
+
+
+
+  /*
+   * Encoder направление
+   */
+
+  data.encoder_sign =
+      (
+        data.open_encoder >
+        data.closed_encoder
+      )
+      ?
+      1
+      :
+      -1;
+
+}
+
+
+
+
+
+
 
 
 
 void Calibration::cancel()
 {
-  /*
-   * Важно:
-   *
-   * calibration_ НЕ изменяется.
-   *
-   * Пользователь просто
-   * выбросил временные данные.
-   */
 
-  runtime_ =
-      CalibrationRuntime();
+  reset_runtime();
+
+
+  pending_ =
+      CalibrationData();
+
+
 
   stage_ =
       CalibrationStage::NONE;
+
 }
 
 
 
-bool Calibration::commit()
+
+
+
+
+
+
+void Calibration::apply_pending()
 {
-
-  if (!validate())
-  {
-    cancel();
-
-    return false;
-  }
-
-
-  CalibrationData new_data;
-
-
-  new_data.valid = true;
-
-
-  new_data.closed_angle =
-      runtime_.closed_angle;
-
-
-  new_data.open_angle =
-      runtime_.open_angle;
-
-
-
-  new_data.encoder_range =
-      std::abs(
-          runtime_.open_encoder -
-          runtime_.closed_encoder
-      );
-
-
-  /*
-   * Определяем направления
-   */
-
-  if (runtime_.open_angle >
-      runtime_.closed_angle)
-  {
-    new_data.imu_sign = 1;
-  }
-  else
-  {
-    new_data.imu_sign = -1;
-  }
-
-
-
-  if (runtime_.open_encoder >
-      runtime_.closed_encoder)
-  {
-    new_data.encoder_sign = 1;
-  }
-  else
-  {
-    new_data.encoder_sign = -1;
-  }
-
-
-
-  /*
-   * Только здесь меняем
-   * рабочую калибровку.
-   */
 
   calibration_ =
-      new_data;
+      pending_;
 
 
-  runtime_ =
-      CalibrationRuntime();
+  pending_ =
+      CalibrationData();
 
 
   stage_ =
       CalibrationStage::NONE;
 
-
-  return true;
 }
 
 
 
-bool Calibration::validate() const
-{
-
-  /*
-   * Проверка углового диапазона
-   */
-
-  float angle_range =
-      std::abs(
-          runtime_.open_angle -
-          runtime_.closed_angle
-      );
-
-
-  if (angle_range < 5.0f)
-  {
-    return false;
-  }
-
-
-  /*
-   * Проверка энкодера
-   */
-
-  int32_t encoder_range =
-      std::abs(
-          runtime_.open_encoder -
-          runtime_.closed_encoder
-      );
-
-
-  /*
-   * Минимум условный.
-   *
-   * Потом можно вынести
-   * в настройки.
-   */
-
-  if (encoder_range < 10)
-  {
-    return false;
-  }
-
-
-  return true;
-}
 
 
 
-CalibrationStage Calibration::stage() const
-{
-  return stage_;
-}
-
-
-
-bool Calibration::active() const
-{
-  return
-      stage_ != CalibrationStage::NONE;
-}
-
-
-
-const CalibrationData &
-Calibration::data() const
-{
-  return calibration_;
-}
 
 
 
@@ -279,25 +435,102 @@ void Calibration::load(
     const CalibrationData &data
 )
 {
+
   calibration_ =
       data;
+
 }
 
 
 
-void Calibration::calculate_signs()
+
+
+
+
+
+
+bool Calibration::active()
+    const
 {
-  /*
-   * Оставлено отдельной функцией
-   *
-   * для дальнейшего расширения.
-   *
-   * Например:
-   * проверка по нескольким движениям.
-   */
+
+  return
+      stage_ !=
+      CalibrationStage::NONE;
+
 }
 
 
 
-} // namespace jalouzee
+
+
+
+
+
+
+CalibrationStage Calibration::stage()
+    const
+{
+
+  return stage_;
+
+}
+
+
+
+
+
+
+
+
+
+const CalibrationData &
+Calibration::data()
+    const
+{
+
+  return calibration_;
+
+}
+
+
+
+
+
+
+
+
+
+const CalibrationData &
+Calibration::pending()
+    const
+{
+
+  return pending_;
+
+}
+
+
+
+
+
+
+
+
+
+void Calibration::reset_runtime()
+{
+
+  runtime_ =
+      CalibrationRuntime();
+
+}
+
+
+
+
+
+
+
+
+} // namespace jalouzee_blinds
 } // namespace esphome
