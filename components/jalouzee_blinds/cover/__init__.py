@@ -47,10 +47,6 @@ CONF_PIN = "pin"
 CONFIG_SCHEMA = (
     cv.Schema(
         {
-            cv.GenerateID():
-                cv.declare_id(
-                    JalouzeeBlinds
-                ),
             cv.GenerateID(): cv.declare_id(
                 JalouzeeBlinds
             ),
@@ -73,6 +69,7 @@ CONFIG_SCHEMA = (
             }),
         }
     )
+    .extend(cv.COMPONENT_SCHEMA)
 )
 
 
