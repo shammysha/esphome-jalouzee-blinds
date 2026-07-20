@@ -45,11 +45,12 @@ CONF_CANCEL_BUTTON = (
 CONF_PIN = "pin"
 
 CONFIG_SCHEMA = (
-    cover.COVER_SCHEMA(
-        JalouzeeBlinds
-    )
-    .extend(
+    cv.Schema(
         {
+            cv.GenerateID():
+                cv.declare_id(
+                    JalouzeeBlinds
+                ),
             cv.GenerateID(): cv.declare_id(
                 JalouzeeBlinds
             ),
