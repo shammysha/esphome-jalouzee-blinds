@@ -3,133 +3,61 @@
 #include "types.h"
 
 namespace esphome {
-  namespace jalouzee_blinds {
+namespace jalouzee_blinds {
 
-    class Calibration {
+class Calibration {
+ public:
+  Calibration();
 
-      public:
+  // Начать новую калибровку
+  void start();
 
-        Calibration();
+  // Следующий шаг калибровки
+  CalibrationResult next(const SensorData &sensor);
 
-        /*
-         * Запуск новой калибровки
-         */
+  // Отмена процесса
+  void cancel();
 
-        void start();
+  // Применить подготовленную калибровку
+  // (вызывается ПОСЛЕ успешной записи в Storage)
+  void apply_pending();
 
-        /*
-         * Обработка очередного
-         * шага калибровки
-         */
+  // Загрузить рабочую калибровку
+  void load(const CalibrationData &data);
 
-        CalibrationResult next(const SensorData &sensor);
+  bool active() const;
 
-        /*
-         * Отмена в любой момент
-         *
-         * Старые данные остаются
-         */
+  bool commit();
 
-        void cancel();
+  CalibrationStage stage() const;
 
-        /*
-         * Применение подготовленной
-         * калибровки после успешной
-         * записи Storage
-         */
+  // Действующая калибровка
+  const CalibrationData &data() const;
 
-        void apply_pending();
+  // Подготовленная калибровка
+  const CalibrationData &pending() const;
 
-        /*
-         * Загрузка готовой
-         * калибровки из Storage
-         */
+ protected:
+  CalibrationResult validate() const;
 
-        void load(const CalibrationData &data);
+  CalibrationResult build_pending();
 
-        bool commit();
+  void calculate_signs(CalibrationData &data);
 
-        /*
-         * Состояние
-         */
+  void reset_runtime();
 
-        bool active() const;
+ protected:
+  // Рабочая калибровка
+  CalibrationData calibration_;
 
-        CalibrationStage stage() const;
+  // Подготовленная, но ещё не применённая
+  CalibrationData pending_;
 
-        /*
-         * Рабочая калибровка
-         */
+  // Временные значения процесса
+  CalibrationRuntime runtime_;
 
-        const CalibrationData& data() const;
+  CalibrationStage stage_ = CalibrationStage::NONE;
+};
 
-        /*
-         * Подготовленная
-         *
-         * Ещё НЕ сохранена
-         */
-
-        const CalibrationData& pending() const;
-
-      protected:
-
-        /*
-         * Проверка собранных
-         * данных
-         */
-
-        CalibrationResult validate() const;
-
-        /*
-         * Создание pending_
-         */
-
-        CalibrationResult build_pending();
-
-        /*
-         * Расчёт направления
-         */
-
-        void calculate_signs(CalibrationData &data);
-
-        /*
-         * Очистка временных
-         * данных
-         */
-
-        void reset_runtime();
-
-        /*
-         * Текущая рабочая
-         * калибровка
-         *
-         * Только она считается
-         * действительной
-         */
-
-        CalibrationData calibration_;
-
-        /*
-         * Новая калибровка
-         *
-         * Ожидает подтверждения
-         */
-
-        CalibrationData pending_;
-
-        /*
-         * Временные точки
-         *
-         * Вообще не сохраняются
-         */
-
-        CalibrationRuntime runtime_;
-
-        CalibrationStage stage_ = CalibrationStage::NONE;
-
-        bool commit_requested_ = false;
-
-    };
-
-  } // namespace jalouzee_blinds
-} // namespace esphome
+}  // namespace jalouzee_blinds
+}  // namespace esphome

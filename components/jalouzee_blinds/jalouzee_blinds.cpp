@@ -1,5 +1,6 @@
-#include "jalouzee_blinds.h"
+#include <cmath>
 
+#include "jalouzee_blinds.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 
@@ -208,7 +209,7 @@ namespace esphome {
 
       if (calibration_.stage() == CalibrationStage::WAIT_COMMIT) {
 
-        if (calibration_.commit_requested()) {
+        if (calibration_.commit()) {
 
           const CalibrationData &pending = calibration_.pending();
 

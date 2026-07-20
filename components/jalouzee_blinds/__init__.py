@@ -11,7 +11,7 @@ from esphome.const import (
 
 CODEOWNERS = ["@shammysha"]
 
-DEPENDENCIES = []
+DEPENDENCIES = ["cover"]
 
 jalouzee_ns = cg.esphome_ns.namespace(
     "jalouzee_blinds"
@@ -45,7 +45,7 @@ CONF_CANCEL_BUTTON = (
 CONF_PIN = "pin"
 
 CONFIG_SCHEMA = (
-    cover.cover_schema(
+    cover.COVER_SCHEMA(
         JalouzeeBlinds
     )
     .extend(
