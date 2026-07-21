@@ -1,176 +1,259 @@
 #pragma once
 
+#include <string>
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/cover/cover.h"
 #include "esphome/components/sensor/sensor.h"
-#include "esphome/components/binary_sensor/binary_sensor.h"
-#include "esphome/components/text_sensor/text_sensor.h"
-#include "esphome/components/switch/switch.h"
 #include "esphome/components/button/button.h"
+#include "esphome/components/select/select.h"
+#include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/number/number.h"
 
 namespace esphome {
 namespace jalouzee_blinds {
 
-enum CalibrationStep : uint8_t {
-  CALIBRATION_NONE = 0,
-  CALIBRATION_STEP_1 = 1,
-  CALIBRATION_STEP_2 = 2,
+// Режим определения угла, который выбрал пользователь (хранится во flash)
+enum AngleSourceMode : uint8_t {
+  ANGLE_SOURCE_AUTO = 0,     // 1) MPU6050  2) Hall/ADC (по приоритету)
+  ANGLE_SOURCE_MPU6050 = 1,  // принудительно MPU6050
+  ANGLE_SOURCE_ENCODER = 2,  // принудительно Hall либо ADC (что задано в YAML)
 };
 
-enum PositionMode : uint8_t {
-  MODE_ENCODER = 0,
-  MODE_ANGLE = 1,
+// Реально используемый в данный момент источник (после разрешения приоритетов,
+// доступности и калибровки)
+enum ActiveAngleSource : uint8_t {
+  ACTIVE_SOURCE_NONE = 0,
+  ACTIVE_SOURCE_MPU6050 = 1,
+  ACTIVE_SOURCE_HALL = 2,
+  ACTIVE_SOURCE_ADC = 3,
 };
 
-// Values persisted to flash between reboots (mirrors the `restore_value: yes`
-// globals in the original YAML). Written through ESPHome's normal deferred
-// preferences flush, so set `preferences: { flash_write_interval: ... }` in
-// your main YAML as usual.
-struct CalibrationData {
-  float pos_low;
-  float pos_high;
-  float step_total;
-  float curr_step;
+enum CalibrationState : uint8_t {
+  CAL_IDLE = 0,
+  CAL_WAIT_CLOSED = 1,  // ждём, что пользователь выставит "закрыто" и нажмёт кнопку повторно
+  CAL_WAIT_OPEN = 2,    // ждём "открыто"
 };
 
-class JalouzeeBlindsOutput;
-class UseAngleSwitch;
-class HasProblemSwitch;
-class CalibrateButton;
+enum MotorDirection : uint8_t {
+  MOTOR_STOP = 0,
+  MOTOR_OPENING = 1,
+  MOTOR_CLOSING = 2,
+};
 
-// The hub. Owns the motor/encoder pins, the (optional) angle sensor
-// reference, and all of the control/calibration logic. Child entities
-// (cover, binary_sensor, sensor, text_sensor, switches, button) register
-// themselves here and the hub pushes state updates out to them.
-class JalouzeeBlinds : public Component {
+class JalouzeeBlinds;
+
+// ---------------------------------------------------------------------------
+// Вспомогательные сущности, создаваемые компонентом автоматически
+// (в YAML не конфигурируются, см. п. "Внутри компонента создаются автоматически")
+// ---------------------------------------------------------------------------
+
+class CalibrationButton : public button::Button {
  public:
-  void setup() override;
-  void loop() override;
-  void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
-
-  // --- wiring, set from Python codegen ---
-  void set_cw_pin(GPIOPin *pin) { cw_pin_ = pin; }
-  void set_ccw_pin(GPIOPin *pin) { ccw_pin_ = pin; }
-  void set_ph_a_pin(GPIOPin *pin) { ph_a_pin_ = pin; }
-  void set_ph_b_pin(GPIOPin *pin) { ph_b_pin_ = pin; }
-  void set_angle_sensor(sensor::Sensor *sens) { angle_sensor_ = sens; }
-
-  // --- child entities, set from Python codegen ---
-  void set_cover(JalouzeeBlindsOutput *c) { cover_ = c; }
-  void set_calibrated_binary_sensor(binary_sensor::BinarySensor *s) { calibrated_sensor_ = s; }
-  void set_calibrate_step_sensor(sensor::Sensor *s) { calibrate_step_sensor_ = s; }
-  void set_calibrate_message_sensor(text_sensor::TextSensor *s) { calibrate_message_sensor_ = s; }
-  void set_use_angle_switch(UseAngleSwitch *s) { use_angle_switch_ = s; }
-  void set_has_problem_switch(HasProblemSwitch *s) { has_problem_switch_ = s; }
-
-  // --- called by the cover entity ---
-  void request_open();
-  void request_close();
-  void request_tilt(float tilt);
-  void request_stop();
-
-  // --- called by the switch/button entities ---
-  void press_calibrate();
-  void set_use_angle_mode(bool enabled);
-  void set_has_problem(bool problem);
-
-  bool is_calibrated() const { return calibrated_; }
-  bool has_problem() const { return has_problem_; }
-  float current_value() const { return last_published_value_; }
-  float current_tilt_target() const { return curr_tilt_; }
-
- protected:
-  void initialize_();
-  void handle_encoder_pulse_(bool is_a_phase);
-  float compute_angle_value_(float raw);
-  float compute_rotary_value_();
-  void update_position_();
-  void update_stall_detection_(float sens);
-  void start_motor_(bool clockwise);
-  void stop_motor_();
-  void save_calibration_();
-  void load_calibration_();
-
-  GPIOPin *cw_pin_{nullptr};
-  GPIOPin *ccw_pin_{nullptr};
-  GPIOPin *ph_a_pin_{nullptr};
-  GPIOPin *ph_b_pin_{nullptr};
-  sensor::Sensor *angle_sensor_{nullptr};
-
-  JalouzeeBlindsOutput *cover_{nullptr};
-  binary_sensor::BinarySensor *calibrated_sensor_{nullptr};
-  sensor::Sensor *calibrate_step_sensor_{nullptr};
-  text_sensor::TextSensor *calibrate_message_sensor_{nullptr};
-  UseAngleSwitch *use_angle_switch_{nullptr};
-  HasProblemSwitch *has_problem_switch_{nullptr};
-
-  ESPPreferenceObject pref_;
-
-  // runtime state - mirrors the `globals:` block in the original YAML
-  PositionMode mode_{MODE_ENCODER};
-  float pos_low_{0.0f};
-  float pos_high_{0.0f};
-  float step_total_{0.0f};
-  float curr_step_{0.0f};
-  float step_count_{0.0f};
-  float curr_tilt_{0.0f};
-  float old_state_{0.0f};
-  float last_published_value_{NAN};
-  bool calibrated_{false};
-  bool has_problem_{false};
-  bool cw_active_{false};
-  bool ccw_active_{false};
-  bool last_ph_a_{false};
-  bool last_ph_b_{false};
-  CalibrationStep calibrate_{CALIBRATION_NONE};
-  uint8_t cycle_time_{0};
-  uint32_t last_update_ms_{0};
-};
-
-// Thin Cover wrapper - all logic delegates to the JalouzeeBlinds hub.
-class JalouzeeBlindsOutput : public cover::Cover, public Component {
- public:
-  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
-  void setup() override {}
-  float get_setup_priority() const override { return setup_priority::DATA; }
-  cover::CoverTraits get_traits() override;
-  void control(const cover::CoverCall &call) override;
-
- protected:
-  JalouzeeBlinds *parent_{nullptr};
-};
-
-class UseAngleSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
-  void setup() override {}
-
- protected:
-  void write_state(bool state) override;
-  JalouzeeBlinds *parent_{nullptr};
-};
-
-class HasProblemSwitch : public switch_::Switch, public Component {
- public:
-  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
-  void setup() override {}
-
- protected:
-  void write_state(bool state) override;
-  JalouzeeBlinds *parent_{nullptr};
-};
-
-class CalibrateButton : public button::Button, public Component {
- public:
-  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
-  void setup() override {}
+  void set_parent(JalouzeeBlinds *parent) { this->parent_ = parent; }
 
  protected:
   void press_action() override;
   JalouzeeBlinds *parent_{nullptr};
+};
+
+class CancelCalibrationButton : public button::Button {
+ public:
+  void set_parent(JalouzeeBlinds *parent) { this->parent_ = parent; }
+
+ protected:
+  void press_action() override;
+  JalouzeeBlinds *parent_{nullptr};
+};
+
+class FaultResetButton : public button::Button {
+ public:
+  void set_parent(JalouzeeBlinds *parent) { this->parent_ = parent; }
+
+ protected:
+  void press_action() override;
+  JalouzeeBlinds *parent_{nullptr};
+};
+
+class AngleSourceSelect : public select::Select {
+ public:
+  void set_parent(JalouzeeBlinds *parent) { this->parent_ = parent; }
+
+ protected:
+  void control(const std::string &value) override;
+  JalouzeeBlinds *parent_{nullptr};
+};
+
+class FaultTimeoutNumber : public number::Number {
+ public:
+  void set_parent(JalouzeeBlinds *parent) { this->parent_ = parent; }
+
+ protected:
+  void control(float value) override;
+  JalouzeeBlinds *parent_{nullptr};
+};
+
+// ---------------------------------------------------------------------------
+// Данные, сохраняемые во flash (NVS). Статус аварии сюда НЕ входит (п.8).
+// ---------------------------------------------------------------------------
+struct JalouzeeBlindsStore {
+  bool hall_calibrated;
+  bool adc_calibrated;
+  bool mpu_calibrated;
+
+  float hall_closed;  // "сырое" значение накопленных импульсов при закрытых ламелях
+  float hall_open;
+  float adc_closed;  // "сырое" значение АЦП при закрытых ламелях
+  float adc_open;
+  float mpu_closed;  // значение sensor'а MPU6050 при закрытых ламелях
+  float mpu_open;
+
+  uint8_t angle_source_mode;  // выбор пользователя: auto/mpu6050/encoder
+  float last_angle_percent;   // последний известный угол наклона, 0..100%
+} __attribute__((packed));
+
+// ---------------------------------------------------------------------------
+class JalouzeeBlinds : public cover::Cover, public Component {
+ public:
+  void setup() override;
+  void loop() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::HARDWARE; }
+
+  cover::CoverTraits get_traits() override;
+
+  // --- сеттеры, вызываемые из codegen (cover.py) ---
+  void set_motor_pins(GPIOPin *in1, GPIOPin *in2) {
+    this->in1_pin_ = in1;
+    this->in2_pin_ = in2;
+  }
+  void set_hall_encoder_pins(GPIOPin *a, GPIOPin *b);
+  void set_adc_pin(GPIOPin *pin) {
+    this->adc_pin_ = pin;
+    this->has_adc_ = true;
+  }
+  void set_mpu6050_sensor(sensor::Sensor *sens) {
+    this->mpu_sensor_ = sens;
+    this->has_mpu_ = true;
+  }
+  void set_angle_source_mode(uint8_t mode) { this->configured_angle_source_mode_ = mode; }
+  void set_fault_timeout(uint32_t seconds) { this->fault_timeout_s_ = seconds; }
+
+  // --- вызовы от вложенных сущностей (кнопки/select/number) ---
+  void on_calibration_button_pressed();
+  void on_cancel_calibration_button_pressed();
+  void on_fault_reset_button_pressed();
+  void on_angle_source_select_changed(const std::string &value);
+  void on_fault_timeout_changed(float seconds);
+
+ protected:
+  void control(const cover::CoverCall &call) override;
+
+  // --- инициализация вложенных сущностей ---
+  void register_sub_entities_();
+
+  // --- мотор ---
+  void motor_open_();
+  void motor_close_();
+  void motor_stop_();
+
+  // --- источники угла ---
+  ActiveAngleSource resolve_active_source_();
+  bool is_source_calibrated_(ActiveAngleSource src);
+  bool is_source_available_(ActiveAngleSource src);
+  float read_raw_(ActiveAngleSource src);
+  // сырое значение -> проценты 0..100 по калибровочным точкам источника
+  float raw_to_percent_(ActiveAngleSource src, float raw);
+  float read_adc_raw_();
+
+  // --- калибровка ---
+  void enter_calibration_();
+  void calibration_step_();
+  void cancel_calibration_();
+  void capture_calibration_point_(bool is_closed_point);
+  void finish_calibration_();
+  void set_calibration_message_(const std::string &msg, bool temporary = false);
+  void update_calibrated_binary_sensor_();
+
+  // --- движение к цели / логика 3 положений ---
+  void handle_open_close_request_(bool opening);
+  void start_move_to_percent_(float target_percent);
+  void handle_movement_();
+
+  // --- авария ---
+  void check_fault_();
+  void trigger_fault_();
+  void clear_fault_();
+
+  // --- flash ---
+  void save_to_flash_();
+  void load_from_flash_();
+
+  // --- энкодер Холла (ISR) ---
+  static void hall_isr_(JalouzeeBlinds *arg);
+
+  // ------------------------- поля -------------------------
+  GPIOPin *in1_pin_{nullptr};
+  GPIOPin *in2_pin_{nullptr};
+  GPIOPin *encoder_a_pin_{nullptr};
+  GPIOPin *encoder_b_pin_{nullptr};
+  GPIOPin *adc_pin_{nullptr};
+  sensor::Sensor *mpu_sensor_{nullptr};
+
+  bool has_hall_{false};
+  bool has_adc_{false};
+  bool has_mpu_{false};
+
+  volatile int32_t hall_pulse_count_{0};
+
+  uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};
+  uint32_t fault_timeout_s_{10};
+
+  // калибровка
+  CalibrationState cal_state_{CAL_IDLE};
+  float temp_hall_closed_{0};
+  float temp_adc_closed_{0};
+  float temp_mpu_closed_{0};
+  uint32_t cal_message_expire_ms_{0};
+  bool cal_message_is_temporary_{false};
+
+  // авария
+  bool fault_active_{false};
+  uint32_t last_angle_change_ms_{0};
+  float last_seen_percent_for_fault_{NAN};
+
+  // после потери питания без валидного источника
+  bool operation_blocked_{false};
+
+  // движение
+  MotorDirection motor_dir_{MOTOR_STOP};
+  bool jog_mode_{false};  // true = ручной jog во время калибровки (без цели/без проверки аварии)
+  float target_percent_{NAN};
+  float current_percent_{0};
+  int8_t current_step_index_{0};  // 0=закрыто, 1=50%, 2=открыто
+
+  uint32_t last_flash_save_ms_{0};
+
+  JalouzeeBlindsStore store_{};
+  ESPPreferenceObject pref_;
+
+  // вложенные сущности (владеет ими данный компонент)
+  CalibrationButton *calibration_button_{nullptr};
+  CancelCalibrationButton *cancel_calibration_button_{nullptr};
+  FaultResetButton *fault_reset_button_{nullptr};
+  AngleSourceSelect *angle_source_select_{nullptr};
+  FaultTimeoutNumber *fault_timeout_number_{nullptr};
+  text_sensor::TextSensor *calibration_text_sensor_{nullptr};
+  binary_sensor::BinarySensor *calibrated_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *fault_binary_sensor_{nullptr};
+
+  friend class CalibrationButton;
+  friend class CancelCalibrationButton;
+  friend class FaultResetButton;
+  friend class AngleSourceSelect;
+  friend class FaultTimeoutNumber;
 };
 
 }  // namespace jalouzee_blinds

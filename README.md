@@ -1,82 +1,142 @@
-# jalouzee_blinds — ESPHome external component
+# jalouzee_blinds — внешний компонент ESPHome
 
-An external component version of a tilt-blind controller originally written
-as inline `globals:` + `script:` + `lambda:` blocks. Targets ESPHome
-2026.7.0 conventions (entity `*_schema()` helpers, `cover.new_cover`,
-`cg.register_component`, etc.).
+Компонент реализует платформу `cover` для управления углом наклона ламелей
+жалюзи мотором DC GA12-N20 (с датчиком Холла на валу мотора) с тремя
+взаимодополняющими источниками угла: MPU6050, датчик Холла (энкодер мотора)
+или резистор (потенциометр) на оси ламелей.
 
-## Layout
+## Структура
 
 ```
 components/jalouzee_blinds/
-├── __init__.py        # jalouzee_blinds: hub (pins, angle sensor ref, glue)
-├── cover.py            # cover: platform jalouzee_blinds
-├── binary_sensor.py     # binary_sensor: platform jalouzee_blinds (Calibrated)
-├── sensor.py            # sensor: platform jalouzee_blinds (Calibrate Step)
-├── text_sensor.py       # text_sensor: platform jalouzee_blinds (Calibrate Message)
-├── switch.py            # switch: platform jalouzee_blinds (use_angle_sensor / has_problem)
-├── button.py            # button: platform jalouzee_blinds (Calibrate)
-├── jalouzee_blinds.h
-└── jalouzee_blinds.cpp
-example.yaml            # full working example, drop-in replacement for the original
+  __init__.py          — пустой пакет-заглушка
+  cover.py              — CONFIG_SCHEMA и codegen (Python)
+  jalouzee_blinds.h      — класс компонента + вложенные сущности
+  jalouzee_blinds.cpp    — вся бизнес-логика (C++)
+example/example.yaml     — пример конфигурации
 ```
 
-Drop the `components/` folder into your ESPHome config directory (or a
-GitHub repo) and reference it via `external_components:` — see
-`example.yaml`.
+Скопируйте `components/jalouzee_blinds` в папку `external_components` вашего
+проекта ESPHome (см. `example/example.yaml`).
 
-## How it maps to the original script
+## Как реализованы требования ТЗ
 
-| Original YAML                                   | Now lives in                                   |
-|--------------------------------------------------|-------------------------------------------------|
-| `globals:` (pos_low, pos_high, step_total, ...)  | private members of `JalouzeeBlinds` (jalouzee_blinds.h)   |
-| `binary_sensor: ph_a` / `ph_b` (unnamed)         | polled directly in `JalouzeeBlinds::loop()`          |
-| `switch: cw` / `ccw` (unnamed)                   | `cw_pin_` / `ccw_pin_` driven directly, no entity |
-| `sensor: rotary_sensor` (unnamed)                | `JalouzeeBlinds::compute_rotary_value_()`            |
-| `sensor: gyro` / `accel_x` filter lambda          | `JalouzeeBlinds::compute_angle_value_()`             |
-| `binary_sensor: calibrated`                      | `binary_sensor: platform: jalouzee_blinds`           |
-| `sensor: calibrate_step`                          | `sensor: platform: jalouzee_blinds`                  |
-| `text_sensor: calibrate_msg`                      | `text_sensor: platform: jalouzee_blinds`             |
-| `switch: Use Angle Sensor` / `Has Problem`        | `switch: platform: jalouzee_blinds` (`type:`)        |
-| `button: Calibrate`                               | `button: platform: jalouzee_blinds`                  |
-| `cover: mycover`                                  | `cover: platform: jalouzee_blinds`                   |
-| `interval: 0.1s` block                            | `JalouzeeBlinds::loop()` (100 ms gate via `millis()`) |
-| `script: switch_on`                               | `JalouzeeBlinds::start_motor_()`                      |
-| `script: initialize`                              | `JalouzeeBlinds::initialize_()` (called from `setup()`) |
-| `script: rotary_update`                           | removed, see below                               |
+1. **Мотор GA12-N20 + Hall-энкодер (7 PPR × передаточное число).**
+   Мотор управляется двумя цифровыми пинами `in1`/`in2` (простой H-мост,
+   полная скорость, без ШИМ — при необходимости легко добавить `output::FloatOutput`
+   вместо прямых GPIO). Энкодер считается по прерыванию на фронт фазы A с
+   определением направления по уровню фазы B (простое квадратурное
+   декодирование). Абсолютное значение PPR используется только информационно —
+   калибровка работает в относительных «сырых» единицах (см. п. 2 ниже), поэтому
+   точное число PPR не требуется для работы алгоритма.
 
-## Deliberate changes from the original
+2. **Три источника угла, MPU6050 + (Hall ИЛИ резистор).**
+   Взаимоисключение `a`/`b` и `adc` в блоке `encoder:` валидируется в
+   `cover.py` (`_validate_encoder`). Выбор режима (`auto` / `mpu6050` /
+   `encoder`) задаётся в YAML (`angle_source:`) и/или переопределяется
+   пользователем через авто-созданный `select` в Home Assistant.
+   Приоритет в режиме `auto`: 1) MPU6050, 2) Hall/резистор — реализовано в
+   `resolve_active_source_()`.
+   **Поведение при потере питания** (требование п.2): если пользователь выбрал
+   режим `encoder`, но после перезагрузки эта ветка ещё не «переподтверждена»
+   калибровкой в текущей сессии, компонент временно (только на сессию, не
+   меняя сохранённую настройку) переключается на MPU6050, если он доступен и
+   откалиброван; если MPU6050 недоступен — управление жалюзи блокируется
+   (`operation_blocked_ = true`) вплоть до ручной калибровки.
 
-- **Mode selection.** The original decided encoder-vs-angle mode at boot by
-  checking whether the MPU6050 I2C component had failed
-  (`get_component_state() == COMPONENT_STATE_FAILED`), timed via an
-  `on_boot: priority: -100` hook. This version just checks whether you gave
-  it an `angle_sensor:` id in YAML. Simpler, and doesn't depend on boot
-  ordering. You can still flip modes at runtime with the "Use Angle Sensor"
-  switch.
-- **`script: rotary_update` is gone.** It existed to speed up the MPU6050's
-  polling interval to 100 ms while the motor was moving, and slow it back
-  down afterwards. Since I2C reads are cheap and don't wear anything out,
-  the example config just sets `update_interval: 100ms` on the `mpu6050`
-  sensor directly — no dynamic interval juggling needed.
-- **`ph_a` / `ph_b` and `cw` / `ccw` are no longer separate entities.**
-  They never had a `name:` in the original config either (i.e. they were
-  already HA-invisible), so folding them into the hub's internal pin
-  handling removes four component instances without losing any exposed
-  functionality.
-- **Calibration values only persist once actually calibrated.** Defaults
-  are `0`, not the original's arbitrary `-8` / `10` guesses, since those
-  were never meant to be used before the first calibration pass anyway.
+3. **Пошаговая ручная калибровка одной кнопкой.**
+   Реализована как конечный автомат `CAL_IDLE → CAL_WAIT_CLOSED → CAL_WAIT_OPEN → CAL_IDLE`
+   в `on_calibration_button_pressed()`. Во время калибровки кнопки
+   открыть/закрыть/стоп у самого cover-объекта работают как ручной джог
+   мотора (без цели и без проверки аварии) — это стандартное поведение
+   стрелок ▲/▼ в карточке cover Home Assistant. При каждой фиксации точки
+   записываются «сырые» значения **всех** доступных источников одновременно
+   (Hall, ADC и MPU6050), как и требовалось. Кнопка «Отменить калибровку»
+   помечается `set_internal(true/false)` в зависимости от состояния — она
+   скрыта из API/HA вне режима калибровки (см. ограничение ниже).
+   Текстовый сенсор всегда содержит подсказку для текущего шага; финальное
+   сообщение «Калибровка завершена» показывается 5 секунд, затем сенсор
+   возвращается к «Перейти в режим калибровки».
 
-## Before you flash
+4. **Автоматическая компенсация зеркальной установки датчика (п.5).**
+   Специальный флаг направления не понадобился: формула
+   `pct = (raw - closed) / (open - closed) * 100` сама даёт корректный
+   результат независимо от того, `open_raw > closed_raw` или наоборот —
+   ровно то, что нужно при зеркальной установке MPU6050/потенциометра.
 
-- Update `CODEOWNERS` and the `url:` in `example.yaml` if you're publishing
-  this to your own GitHub repo.
-- This hasn't been compiled against a real ESPHome checkout (no network
-  access in this environment) — please run `esphome config example.yaml`
-  and `esphome compile example.yaml` before flashing, and treat this as a
-  strong first draft rather than field-tested code. The pieces most worth
-  double-checking against your installed ESPHome version: `cover.cover_schema`,
-  `switch.switch_schema`, and `button.button_schema` signatures (these
-  entity-schema helpers have changed shape a few times across ESPHome
-  releases).
+5. **Авария при «зависшем» угле (п.6).**
+   Пока мотор активно двигается к цели, `check_fault_()` в `loop()` сравнивает
+   текущий угол с последним изменением; если угол не менялся дольше
+   `fault_timeout` секунд — мотор останавливается, публикуется
+   `binary_sensor` «Авария», и любое дальнейшее управление жалюзи блокируется
+   до нажатия отдельной кнопки «Сброс аварии». Таймаут выведен и в YAML
+   (`fault_timeout:`), и как `number` в API (можно менять из Home Assistant
+   на лету).
+
+6. **Три фиксированных положения — Закрыто / 50% / Открыто (п.7).**
+   `handle_open_close_request_()` продвигает индекс `0→1→2` (закрыто→50→открыто)
+   при последовательных нажатиях «открыть», и `2→1→0` при «закрыть». Прямая
+   установка произвольной позиции (например, слайдером в HA) поддержана
+   отдельно и не ломает пошаговую логику последующих нажатий.
+
+7. **Хранение состояния во flash (п.8).**
+   `JalouzeeBlindsStore` (упакованная структура) сохраняется через
+   `ESPPreferenceObject`/NVS: калибровочные точки всех источников, флаги
+   «источник откалиброван», текущий угол (сохраняется по завершении движения
+   и периодически, не чаще раза в 30 с — берёжём ресурс flash), выбранный
+   пользователем режим определения угла. Статус аварии **намеренно** не
+   сохраняется, как и требовалось.
+
+## Автоматически создаваемые сущности
+
+Все они создаются внутри `register_sub_entities_()` в C++ **без** какой-либо
+конфигурации в YAML:
+
+| Сущность | Тип | Назначение |
+|---|---|---|
+| `<name> Калибровка` | `button` | шаги калибровки (п.3) |
+| `<name> Отменить калибровку` | `button` | видима/активна только во время калибровки |
+| `<name> Сброс аварии` | `button` | сброс состояния аварии (п.6) |
+| `<name> Источник угла наклона` | `select` | `auto` / `mpu6050` / `encoder` |
+| `<name> Таймаут аварии (сек)` | `number` | тот же параметр, что и `fault_timeout` в YAML |
+| `<name> Сообщение калибровки` | `text_sensor` | подсказки пользователю |
+| `<name> Откалибровано` | `binary_sensor` | есть хотя бы один откалиброванный источник |
+| `<name> Авария` | `binary_sensor` | добавлено сверх явного списка ТЗ — без него статус аварии из п.6 не был бы виден в Home Assistant |
+
+## Известные допущения и что стоит проверить перед прошивкой
+
+Это цельная, архитектурно продуманная реализация, но раздел ESPHome API
+довольно активно меняется между версиями, поэтому перед компиляцией
+рекомендуется сверить со своей версией ESPHome:
+
+- **`cover.cover_schema()` / `cover.new_cover()`** — актуальный API для
+  ESPHome ≥ 2023.5. Для более старых версий замените на
+  `cover.COVER_SCHEMA.extend(cv.polling_component_schema(...))` +
+  `cg.new_Pvariable` + `await cover.register_cover(var, config)`.
+- **Чтение ADC** реализовано через `analogRead()` (`USE_ARDUINO`). Если
+  проект собирается на ESP-IDF без Arduino-framework, замените
+  `read_adc_raw_()` на использование `esphome::adc::ADCSensor`.
+  Аналогично мотор сейчас управляется без ШИМ (полная скорость) — при
+  необходимости плавного разгона/торможения добавьте `output::FloatOutput`
+  вместо прямых `GPIOPin` для `in1`/`in2`.
+  Обратите внимание, что реальный H-мост может требовать активного торможения
+  (оба пина HIGH) вместо «выбега» (оба LOW) в `motor_stop_()` — подберите под
+  свою схему (L298N/TB6612/DRV8833 и т.д.).
+- **`set_internal(true/false)` во время выполнения** — штатный флаг
+  `EntityBase`, но динамическое переключение видимости сущности в уже
+  подключённом клиенте Home Assistant может потребовать переподключения API
+  или обновления страницы, это ограничение самого протокола ESPHome API, а
+  не этого компонента.
+- Квадратурное декодирование Hall-энкодера — простейший вариант (1 прерывание
+  на фронт A, направление по уровню B). Для более точного счёта (4x) можно
+  повесить прерывания на оба пина по обоим фронтам.
+- Резистор (потенциометр) физически хранит **абсолютное** положение и в
+  теории переживает потерю питания корректно, в отличие от импульсного
+  Hall-счётчика (который на старте всегда обнуляется). Тем не менее, по
+  ТЗ (п.2) оба варианта после потери питания одинаково переключаются на
+  MPU6050/блокировку — так и реализовано; при желании поведение для ADC
+  можно сделать более мягким (не блокировать, доверять сохранённому диапазону).
+
+Готов доработать любой из этих пунктов под вашу конкретную электрическую схему
+и версию ESPHome — просто уточните детали (драйвер мотора, версия ESPHome,
+framework).
