@@ -1,13 +1,13 @@
-"""tilt_cover: external component for a hall/encoder or MPU6050-angle driven tilt blind.
+"""jalouzee_blinds: external component for a hall/encoder or MPU6050-angle driven tilt blind.
 
 This is the hub. It owns the motor pins, the encoder pins and (optionally) a
 reference to an already-configured angle sensor (e.g. the accel_x sub-sensor
 of a `sensor.mpu6050`). All of the actual control logic lives in
-TiltCover (see tilt_cover.h / tilt_cover.cpp).
+JalouzeeBlinds (see jalouzee_blinds.h / jalouzee_blinds.cpp).
 
 Child entities (cover, binary_sensor, sensor, text_sensor, switch, button)
 are declared in their own platform files in this directory and attach
-themselves to this hub via `tilt_cover_id`.
+themselves to this hub via `jalouzee_blinds_id`.
 """
 
 import esphome.codegen as cg
@@ -16,23 +16,23 @@ import esphome.pins as pins
 from esphome.components import sensor
 from esphome.const import CONF_ID
 
-CODEOWNERS = ["@your-github-handle"]
+CODEOWNERS = ["@shammysha"]
 
-tilt_cover_ns = cg.esphome_ns.namespace("tilt_cover")
-TiltCover = tilt_cover_ns.class_("TiltCover", cg.Component)
+jalouzee_blinds_ns = cg.esphome_ns.namespace("jalouzee_blinds")
+JalouzeeBlinds = jalouzee_blinds_ns.class_("JalouzeeBlinds", cg.Component)
 
 CONF_PIN_CW = "pin_cw"
 CONF_PIN_CCW = "pin_ccw"
 CONF_PIN_PH_A = "pin_ph_a"
 CONF_PIN_PH_B = "pin_ph_b"
 CONF_ANGLE_SENSOR = "angle_sensor"
-CONF_TILT_COVER_ID = "tilt_cover_id"
+CONF_JALOUZEE_BLINDS_ID = "jalouzee_blinds_id"
 
 MULTI_CONF = True
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(): cv.declare_id(TiltCover),
+        cv.GenerateID(): cv.declare_id(JalouzeeBlinds),
         cv.Required(CONF_PIN_CW): pins.gpio_output_pin_schema,
         cv.Required(CONF_PIN_CCW): pins.gpio_output_pin_schema,
         cv.Required(CONF_PIN_PH_A): pins.gpio_input_pin_schema,

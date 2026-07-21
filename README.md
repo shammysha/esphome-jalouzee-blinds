@@ -1,4 +1,4 @@
-# tilt_cover — ESPHome external component
+# jalouzee_blinds — ESPHome external component
 
 An external component version of a tilt-blind controller originally written
 as inline `globals:` + `script:` + `lambda:` blocks. Targets ESPHome
@@ -8,16 +8,16 @@ as inline `globals:` + `script:` + `lambda:` blocks. Targets ESPHome
 ## Layout
 
 ```
-components/tilt_cover/
-├── __init__.py        # tilt_cover: hub (pins, angle sensor ref, glue)
-├── cover.py            # cover: platform tilt_cover
-├── binary_sensor.py     # binary_sensor: platform tilt_cover (Calibrated)
-├── sensor.py            # sensor: platform tilt_cover (Calibrate Step)
-├── text_sensor.py       # text_sensor: platform tilt_cover (Calibrate Message)
-├── switch.py            # switch: platform tilt_cover (use_angle_sensor / has_problem)
-├── button.py            # button: platform tilt_cover (Calibrate)
-├── tilt_cover.h
-└── tilt_cover.cpp
+components/jalouzee_blinds/
+├── __init__.py        # jalouzee_blinds: hub (pins, angle sensor ref, glue)
+├── cover.py            # cover: platform jalouzee_blinds
+├── binary_sensor.py     # binary_sensor: platform jalouzee_blinds (Calibrated)
+├── sensor.py            # sensor: platform jalouzee_blinds (Calibrate Step)
+├── text_sensor.py       # text_sensor: platform jalouzee_blinds (Calibrate Message)
+├── switch.py            # switch: platform jalouzee_blinds (use_angle_sensor / has_problem)
+├── button.py            # button: platform jalouzee_blinds (Calibrate)
+├── jalouzee_blinds.h
+└── jalouzee_blinds.cpp
 example.yaml            # full working example, drop-in replacement for the original
 ```
 
@@ -29,20 +29,20 @@ GitHub repo) and reference it via `external_components:` — see
 
 | Original YAML                                   | Now lives in                                   |
 |--------------------------------------------------|-------------------------------------------------|
-| `globals:` (pos_low, pos_high, step_total, ...)  | private members of `TiltCover` (tilt_cover.h)   |
-| `binary_sensor: ph_a` / `ph_b` (unnamed)         | polled directly in `TiltCover::loop()`          |
+| `globals:` (pos_low, pos_high, step_total, ...)  | private members of `JalouzeeBlinds` (jalouzee_blinds.h)   |
+| `binary_sensor: ph_a` / `ph_b` (unnamed)         | polled directly in `JalouzeeBlinds::loop()`          |
 | `switch: cw` / `ccw` (unnamed)                   | `cw_pin_` / `ccw_pin_` driven directly, no entity |
-| `sensor: rotary_sensor` (unnamed)                | `TiltCover::compute_rotary_value_()`            |
-| `sensor: gyro` / `accel_x` filter lambda          | `TiltCover::compute_angle_value_()`             |
-| `binary_sensor: calibrated`                      | `binary_sensor: platform: tilt_cover`           |
-| `sensor: calibrate_step`                          | `sensor: platform: tilt_cover`                  |
-| `text_sensor: calibrate_msg`                      | `text_sensor: platform: tilt_cover`             |
-| `switch: Use Angle Sensor` / `Has Problem`        | `switch: platform: tilt_cover` (`type:`)        |
-| `button: Calibrate`                               | `button: platform: tilt_cover`                  |
-| `cover: mycover`                                  | `cover: platform: tilt_cover`                   |
-| `interval: 0.1s` block                            | `TiltCover::loop()` (100 ms gate via `millis()`) |
-| `script: switch_on`                               | `TiltCover::start_motor_()`                      |
-| `script: initialize`                              | `TiltCover::initialize_()` (called from `setup()`) |
+| `sensor: rotary_sensor` (unnamed)                | `JalouzeeBlinds::compute_rotary_value_()`            |
+| `sensor: gyro` / `accel_x` filter lambda          | `JalouzeeBlinds::compute_angle_value_()`             |
+| `binary_sensor: calibrated`                      | `binary_sensor: platform: jalouzee_blinds`           |
+| `sensor: calibrate_step`                          | `sensor: platform: jalouzee_blinds`                  |
+| `text_sensor: calibrate_msg`                      | `text_sensor: platform: jalouzee_blinds`             |
+| `switch: Use Angle Sensor` / `Has Problem`        | `switch: platform: jalouzee_blinds` (`type:`)        |
+| `button: Calibrate`                               | `button: platform: jalouzee_blinds`                  |
+| `cover: mycover`                                  | `cover: platform: jalouzee_blinds`                   |
+| `interval: 0.1s` block                            | `JalouzeeBlinds::loop()` (100 ms gate via `millis()`) |
+| `script: switch_on`                               | `JalouzeeBlinds::start_motor_()`                      |
+| `script: initialize`                              | `JalouzeeBlinds::initialize_()` (called from `setup()`) |
 | `script: rotary_update`                           | removed, see below                               |
 
 ## Deliberate changes from the original

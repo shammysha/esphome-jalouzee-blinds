@@ -1,20 +1,20 @@
-#include "tilt_cover.h"
+#include "jalouzee_blinds.h"
 #include "esphome/core/log.h"
 #include <cmath>
 
 namespace esphome {
-namespace tilt_cover {
+namespace jalouzee_blinds {
 
-static const char *const TAG = "tilt_cover";
+static const char *const TAG = "jalouzee_blinds";
 // Fixed hash so calibration survives recompiles as long as the object id
-// namespace stays "tilt_cover_calibration".
+// namespace stays "jalouzee_blinds_calibration".
 static const uint32_t CALIBRATION_PREF_HASH = 0xA1C3B7E5UL;
 
 // ------------------------------------------------------------------------
-// TiltCover hub
+// JalouzeeBlinds hub
 // ------------------------------------------------------------------------
 
-void TiltCover::setup() {
+void JalouzeeBlinds::setup() {
   this->cw_pin_->setup();
   this->ccw_pin_->setup();
   this->ph_a_pin_->setup();
@@ -28,7 +28,7 @@ void TiltCover::setup() {
   this->initialize_();
 }
 
-void TiltCover::load_calibration_() {
+void JalouzeeBlinds::load_calibration_() {
   this->pref_ = global_preferences->make_preference<CalibrationData>(CALIBRATION_PREF_HASH);
   CalibrationData data{};
   if (this->pref_.load(&data)) {
@@ -39,12 +39,12 @@ void TiltCover::load_calibration_() {
   }
 }
 
-void TiltCover::save_calibration_() {
+void JalouzeeBlinds::save_calibration_() {
   CalibrationData data{this->pos_low_, this->pos_high_, this->step_total_, this->curr_step_};
   this->pref_.save(&data);
 }
 
-void TiltCover::initialize_() {
+void JalouzeeBlinds::initialize_() {
   // Original YAML picked the mode at boot based on whether the MPU6050
   // I2C component had failed to initialize. Here it's simpler and more
   // robust: mode is just "did the user wire up an angle_sensor:".
@@ -70,7 +70,7 @@ void TiltCover::initialize_() {
   }
 }
 
-void TiltCover::loop() {
+void JalouzeeBlinds::loop() {
   // Poll the encoder inputs every loop and act on rising edges (mirrors the
   // default software-debounced behaviour of ESPHome's gpio binary_sensor
   // that the original YAML relied on).
@@ -91,7 +91,7 @@ void TiltCover::loop() {
   this->update_position_();
 }
 
-void TiltCover::handle_encoder_pulse_(bool is_a_phase) {
+void JalouzeeBlinds::handle_encoder_pulse_(bool is_a_phase) {
   if (this->cw_active_) {
     this->curr_step_ += 1;
     if (this->calibrate_ == CALIBRATION_STEP_2)
@@ -108,7 +108,7 @@ void TiltCover::handle_encoder_pulse_(bool is_a_phase) {
   }
 }
 
-float TiltCover::compute_angle_value_(float raw) {
+float JalouzeeBlinds::compute_angle_value_(float raw) {
   raw = std::round(raw * 10.0f) / 10.0f;
   bool sens_side = this->pos_low_ > this->pos_high_;  // false = left, true = right
 
@@ -135,7 +135,7 @@ float TiltCover::compute_angle_value_(float raw) {
   return x;
 }
 
-float TiltCover::compute_rotary_value_() {
+float JalouzeeBlinds::compute_rotary_value_() {
   if (!this->calibrated_ || this->step_total_ == 0.0f)
     return NAN;
 
@@ -148,7 +148,7 @@ float TiltCover::compute_rotary_value_() {
   return std::round(x * 10.0f) / 10.0f;
 }
 
-void TiltCover::update_position_() {
+void JalouzeeBlinds::update_position_() {
   float sens;
   if (this->mode_ == MODE_ANGLE) {
     float raw = this->angle_sensor_ != nullptr ? this->angle_sensor_->state : 0.0f;
@@ -186,7 +186,7 @@ void TiltCover::update_position_() {
   }
 }
 
-void TiltCover::update_stall_detection_(float sens) {
+void JalouzeeBlinds::update_stall_detection_(float sens) {
   if (this->cycle_time_ < 9) {
     this->cycle_time_++;
     return;
@@ -202,7 +202,7 @@ void TiltCover::update_stall_detection_(float sens) {
   }
 }
 
-void TiltCover::start_motor_(bool clockwise) {
+void JalouzeeBlinds::start_motor_(bool clockwise) {
   if (this->has_problem_) {
     this->stop_motor_();
     if (this->cover_ != nullptr) {
@@ -230,14 +230,14 @@ void TiltCover::start_motor_(bool clockwise) {
   }
 }
 
-void TiltCover::stop_motor_() {
+void JalouzeeBlinds::stop_motor_() {
   this->cw_pin_->digital_write(false);
   this->ccw_pin_->digital_write(false);
   this->cw_active_ = false;
   this->ccw_active_ = false;
 }
 
-void TiltCover::request_open() {
+void JalouzeeBlinds::request_open() {
   if (this->curr_tilt_ >= 0.5f && this->curr_tilt_ < 1.0f) {
     this->curr_tilt_ = 1.0f;
   } else {
@@ -250,7 +250,7 @@ void TiltCover::request_open() {
   this->start_motor_(true);
 }
 
-void TiltCover::request_close() {
+void JalouzeeBlinds::request_close() {
   if (this->curr_tilt_ > 0.0f && this->curr_tilt_ <= 0.5f) {
     this->curr_tilt_ = 0.0f;
   } else {
@@ -263,7 +263,7 @@ void TiltCover::request_close() {
   this->start_motor_(false);
 }
 
-void TiltCover::request_tilt(float tilt) {
+void JalouzeeBlinds::request_tilt(float tilt) {
   if (this->curr_tilt_ < tilt) {
     this->curr_tilt_ = tilt;
     this->start_motor_(true);
@@ -273,7 +273,7 @@ void TiltCover::request_tilt(float tilt) {
   }
 }
 
-void TiltCover::request_stop() {
+void JalouzeeBlinds::request_stop() {
   this->stop_motor_();
   if (this->cover_ != nullptr) {
     this->cover_->current_operation = cover::COVER_OPERATION_IDLE;
@@ -281,7 +281,7 @@ void TiltCover::request_stop() {
   }
 }
 
-void TiltCover::press_calibrate() {
+void JalouzeeBlinds::press_calibrate() {
   switch (this->calibrate_) {
     case CALIBRATION_NONE: {
       this->calibrated_ = false;
@@ -324,20 +324,20 @@ void TiltCover::press_calibrate() {
     this->calibrate_step_sensor_->publish_state((float) this->calibrate_);
 }
 
-void TiltCover::set_use_angle_mode(bool enabled) {
+void JalouzeeBlinds::set_use_angle_mode(bool enabled) {
   this->mode_ = enabled ? MODE_ANGLE : MODE_ENCODER;
   if (this->use_angle_switch_ != nullptr)
     this->use_angle_switch_->publish_state(enabled);
 }
 
-void TiltCover::set_has_problem(bool problem) {
+void JalouzeeBlinds::set_has_problem(bool problem) {
   this->has_problem_ = problem;
   if (this->has_problem_switch_ != nullptr)
     this->has_problem_switch_->publish_state(problem);
 }
 
-void TiltCover::dump_config() {
-  ESP_LOGCONFIG(TAG, "Tilt Cover:");
+void JalouzeeBlinds::dump_config() {
+  ESP_LOGCONFIG(TAG, "Jalouzee Blinds:");
   ESP_LOGCONFIG(TAG, "  Mode: %s", this->mode_ == MODE_ANGLE ? "Angle sensor" : "Encoder");
   ESP_LOGCONFIG(TAG, "  Calibrated: %s", YESNO(this->calibrated_));
   LOG_PIN("  CW Pin: ", this->cw_pin_);
@@ -347,10 +347,10 @@ void TiltCover::dump_config() {
 }
 
 // ------------------------------------------------------------------------
-// TiltCoverOutput (the exposed cover entity)
+// JalouzeeBlindsOutput (the exposed cover entity)
 // ------------------------------------------------------------------------
 
-cover::CoverTraits TiltCoverOutput::get_traits() {
+cover::CoverTraits JalouzeeBlindsOutput::get_traits() {
   auto traits = cover::CoverTraits();
   traits.set_is_assumed_state(false);
   traits.set_supports_position(true);
@@ -360,7 +360,7 @@ cover::CoverTraits TiltCoverOutput::get_traits() {
   return traits;
 }
 
-void TiltCoverOutput::control(const cover::CoverCall &call) {
+void JalouzeeBlindsOutput::control(const cover::CoverCall &call) {
   if (this->parent_ == nullptr)
     return;
 
@@ -401,5 +401,5 @@ void CalibrateButton::press_action() {
     this->parent_->press_calibrate();
 }
 
-}  // namespace tilt_cover
+}  // namespace jalouzee_blinds
 }  // namespace esphome

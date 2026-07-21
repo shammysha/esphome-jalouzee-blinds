@@ -11,7 +11,7 @@
 #include "esphome/components/button/button.h"
 
 namespace esphome {
-namespace tilt_cover {
+namespace jalouzee_blinds {
 
 enum CalibrationStep : uint8_t {
   CALIBRATION_NONE = 0,
@@ -35,7 +35,7 @@ struct CalibrationData {
   float curr_step;
 };
 
-class TiltCoverOutput;
+class JalouzeeBlindsOutput;
 class UseAngleSwitch;
 class HasProblemSwitch;
 class CalibrateButton;
@@ -44,7 +44,7 @@ class CalibrateButton;
 // reference, and all of the control/calibration logic. Child entities
 // (cover, binary_sensor, sensor, text_sensor, switches, button) register
 // themselves here and the hub pushes state updates out to them.
-class TiltCover : public Component {
+class JalouzeeBlinds : public Component {
  public:
   void setup() override;
   void loop() override;
@@ -59,7 +59,7 @@ class TiltCover : public Component {
   void set_angle_sensor(sensor::Sensor *sens) { angle_sensor_ = sens; }
 
   // --- child entities, set from Python codegen ---
-  void set_cover(TiltCoverOutput *c) { cover_ = c; }
+  void set_cover(JalouzeeBlindsOutput *c) { cover_ = c; }
   void set_calibrated_binary_sensor(binary_sensor::BinarySensor *s) { calibrated_sensor_ = s; }
   void set_calibrate_step_sensor(sensor::Sensor *s) { calibrate_step_sensor_ = s; }
   void set_calibrate_message_sensor(text_sensor::TextSensor *s) { calibrate_message_sensor_ = s; }
@@ -100,7 +100,7 @@ class TiltCover : public Component {
   GPIOPin *ph_b_pin_{nullptr};
   sensor::Sensor *angle_sensor_{nullptr};
 
-  TiltCoverOutput *cover_{nullptr};
+  JalouzeeBlindsOutput *cover_{nullptr};
   binary_sensor::BinarySensor *calibrated_sensor_{nullptr};
   sensor::Sensor *calibrate_step_sensor_{nullptr};
   text_sensor::TextSensor *calibrate_message_sensor_{nullptr};
@@ -130,48 +130,48 @@ class TiltCover : public Component {
   uint32_t last_update_ms_{0};
 };
 
-// Thin Cover wrapper - all logic delegates to the TiltCover hub.
-class TiltCoverOutput : public cover::Cover, public Component {
+// Thin Cover wrapper - all logic delegates to the JalouzeeBlinds hub.
+class JalouzeeBlindsOutput : public cover::Cover, public Component {
  public:
-  void set_parent(TiltCover *parent) { parent_ = parent; }
+  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
   void setup() override {}
   float get_setup_priority() const override { return setup_priority::DATA; }
   cover::CoverTraits get_traits() override;
   void control(const cover::CoverCall &call) override;
 
  protected:
-  TiltCover *parent_{nullptr};
+  JalouzeeBlinds *parent_{nullptr};
 };
 
 class UseAngleSwitch : public switch_::Switch, public Component {
  public:
-  void set_parent(TiltCover *parent) { parent_ = parent; }
+  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
   void setup() override {}
 
  protected:
   void write_state(bool state) override;
-  TiltCover *parent_{nullptr};
+  JalouzeeBlinds *parent_{nullptr};
 };
 
 class HasProblemSwitch : public switch_::Switch, public Component {
  public:
-  void set_parent(TiltCover *parent) { parent_ = parent; }
+  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
   void setup() override {}
 
  protected:
   void write_state(bool state) override;
-  TiltCover *parent_{nullptr};
+  JalouzeeBlinds *parent_{nullptr};
 };
 
 class CalibrateButton : public button::Button, public Component {
  public:
-  void set_parent(TiltCover *parent) { parent_ = parent; }
+  void set_parent(JalouzeeBlinds *parent) { parent_ = parent; }
   void setup() override {}
 
  protected:
   void press_action() override;
-  TiltCover *parent_{nullptr};
+  JalouzeeBlinds *parent_{nullptr};
 };
 
-}  // namespace tilt_cover
+}  // namespace jalouzee_blinds
 }  // namespace esphome
