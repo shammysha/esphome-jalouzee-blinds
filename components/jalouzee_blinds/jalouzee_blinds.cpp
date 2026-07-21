@@ -1,3 +1,4 @@
+#include <cmath>
 #include "jalouzee_blinds.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
@@ -32,7 +33,7 @@ void FaultTimeoutNumber::control(float value) { this->parent_->on_fault_timeout_
 // =====================================================================
 // setup / dump_config
 // =====================================================================
-void JalouzeeBlinds::set_hall_encoder_pins(GPIOPin *a, GPIOPin *b) {
+void JalouzeeBlinds::set_hall_encoder_pins(InternalGPIOPin *a, InternalGPIOPin *b) {
   this->encoder_a_pin_ = a;
   this->encoder_b_pin_ = b;
   this->has_hall_ = true;
@@ -66,8 +67,12 @@ void JalouzeeBlinds::setup() {
   }
 
   // --- preferences (flash) ---
-  this->pref_ = global_preferences->make_preference<JalouzeeBlindsStore>(
-      fnv1_hash("jalouzee_blinds_" + this->get_object_id()));
+  {
+    char object_id_buf[OBJECT_ID_MAX_LEN];
+    size_t object_id_len = this->write_object_id_to(object_id_buf, sizeof(object_id_buf));
+    this->pref_ = global_preferences->make_preference<JalouzeeBlindsStore>(
+        fnv1_hash("jalouzee_blinds_" + std::string(object_id_buf, object_id_len)));
+  }
   this->load_from_flash_();
 
   // если пользователь не переопределял через сеттер codegen — берём значение из YAML config
@@ -102,38 +107,38 @@ void JalouzeeBlinds::setup() {
 }
 
 void JalouzeeBlinds::register_sub_entities_() {
-  std::string base_name = this->get_name();
+  const std::string base_name = this->get_name();
+
+  // configure_entity_() only stores a StringRef (no copy) — keep the built name
+  // strings alive in entity_name_storage_ for the lifetime of the device. Reserve
+  // exactly the number of make_name() calls below so the vector never reallocates
+  // (which would invalidate the c_str() pointers already handed to entities).
+  this->entity_name_storage_.reserve(8);
+  auto make_name = [this](std::string name) -> const char * {
+    this->entity_name_storage_.push_back(std::move(name));
+    return this->entity_name_storage_.back().c_str();
+  };
 
   this->calibration_button_ = new CalibrationButton();
   this->calibration_button_->set_parent(this);
-  this->calibration_button_->set_name(base_name + " Калибровка");
-  this->calibration_button_->set_object_id((this->get_object_id() + "_calibration").c_str());
-  this->calibration_button_->set_disabled_by_default(false);
-  App.register_button(this->calibration_button_);
+  App.register_button(this->calibration_button_, make_name(base_name + " Калибровка"), 0, 0);
 
   this->cancel_calibration_button_ = new CancelCalibrationButton();
   this->cancel_calibration_button_->set_parent(this);
-  this->cancel_calibration_button_->set_name(base_name + " Отменить калибровку");
-  this->cancel_calibration_button_->set_object_id((this->get_object_id() + "_cancel_calibration").c_str());
-  this->cancel_calibration_button_->set_disabled_by_default(false);
-  // доступна только в режиме калибровки (см. on_calibration_button_pressed/cancel_calibration_)
-  this->cancel_calibration_button_->set_internal(true);
-  App.register_button(this->cancel_calibration_button_);
+  // доступна только в режиме калибровки (см. on_calibration_button_pressed/cancel_calibration_) —
+  // стартует internal, переключается динамически через (deprecated) set_internal().
+  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Отменить калибровку"), 0,
+                       1u << ENTITY_FIELD_INTERNAL_SHIFT);
 
   this->fault_reset_button_ = new FaultResetButton();
   this->fault_reset_button_->set_parent(this);
-  this->fault_reset_button_->set_name(base_name + " Сброс аварии");
-  this->fault_reset_button_->set_object_id((this->get_object_id() + "_fault_reset").c_str());
-  this->fault_reset_button_->set_disabled_by_default(false);
-  App.register_button(this->fault_reset_button_);
+  App.register_button(this->fault_reset_button_, make_name(base_name + " Сброс аварии"), 0, 0);
 
   this->angle_source_select_ = new AngleSourceSelect();
   this->angle_source_select_->set_parent(this);
-  this->angle_source_select_->set_name(base_name + " Источник угла наклона");
-  this->angle_source_select_->set_object_id((this->get_object_id() + "_angle_source").c_str());
-  this->angle_source_select_->set_disabled_by_default(false);
   {
-    std::vector<std::string> options;
+    FixedVector<const char *> options;
+    options.init(3);
     options.push_back("auto");
     if (this->has_mpu_)
       options.push_back("mpu6050");
@@ -141,7 +146,7 @@ void JalouzeeBlinds::register_sub_entities_() {
       options.push_back("encoder");
     this->angle_source_select_->traits.set_options(options);
   }
-  App.register_select(this->angle_source_select_);
+  App.register_select(this->angle_source_select_, make_name(base_name + " Источник угла наклона"), 0, 0);
   {
     const char *cur = "auto";
     if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) cur = "mpu6050";
@@ -151,32 +156,20 @@ void JalouzeeBlinds::register_sub_entities_() {
 
   this->fault_timeout_number_ = new FaultTimeoutNumber();
   this->fault_timeout_number_->set_parent(this);
-  this->fault_timeout_number_->set_name(base_name + " Таймаут аварии (сек)");
-  this->fault_timeout_number_->set_object_id((this->get_object_id() + "_fault_timeout").c_str());
-  this->fault_timeout_number_->set_disabled_by_default(false);
   this->fault_timeout_number_->traits.set_min_value(1);
   this->fault_timeout_number_->traits.set_max_value(300);
   this->fault_timeout_number_->traits.set_step(1);
-  App.register_number(this->fault_timeout_number_);
+  App.register_number(this->fault_timeout_number_, make_name(base_name + " Таймаут аварии (сек)"), 0, 0);
   this->fault_timeout_number_->publish_state(this->fault_timeout_s_);
 
   this->calibration_text_sensor_ = new text_sensor::TextSensor();
-  this->calibration_text_sensor_->set_name(base_name + " Сообщение калибровки");
-  this->calibration_text_sensor_->set_object_id((this->get_object_id() + "_calibration_message").c_str());
-  this->calibration_text_sensor_->set_disabled_by_default(false);
-  App.register_text_sensor(this->calibration_text_sensor_);
+  App.register_text_sensor(this->calibration_text_sensor_, make_name(base_name + " Сообщение калибровки"), 0, 0);
 
   this->calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-  this->calibrated_binary_sensor_->set_name(base_name + " Откалибровано");
-  this->calibrated_binary_sensor_->set_object_id((this->get_object_id() + "_calibrated").c_str());
-  this->calibrated_binary_sensor_->set_disabled_by_default(false);
-  App.register_binary_sensor(this->calibrated_binary_sensor_);
+  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name(base_name + " Откалибровано"), 0, 0);
 
   this->fault_binary_sensor_ = new binary_sensor::BinarySensor();
-  this->fault_binary_sensor_->set_name(base_name + " Авария");
-  this->fault_binary_sensor_->set_object_id((this->get_object_id() + "_fault").c_str());
-  this->fault_binary_sensor_->set_disabled_by_default(false);
-  App.register_binary_sensor(this->fault_binary_sensor_);
+  App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Авария"), 0, 0);
   this->fault_binary_sensor_->publish_state(false);
 }
 
@@ -223,8 +216,8 @@ void JalouzeeBlinds::loop() {
   if (src != ACTIVE_SOURCE_NONE) {
     float raw = this->read_raw_(src);
     float pct = this->raw_to_percent_(src, raw);
-    if (!isnan(pct)) {
-      if (fabsf(pct - this->last_seen_percent_for_fault_) > FAULT_ANGLE_EPSILON || isnan(this->last_seen_percent_for_fault_)) {
+    if (!std::isnan(pct)) {
+      if (fabsf(pct - this->last_seen_percent_for_fault_) > FAULT_ANGLE_EPSILON || std::isnan(this->last_seen_percent_for_fault_)) {
         this->last_angle_change_ms_ = now;
         this->last_seen_percent_for_fault_ = pct;
       }
@@ -621,7 +614,7 @@ void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
 }
 
 void JalouzeeBlinds::handle_movement_() {
-  if (isnan(this->target_percent_)) return;
+  if (std::isnan(this->target_percent_)) return;
 
   bool reached = false;
   if (this->motor_dir_ == MOTOR_OPENING && this->current_percent_ >= this->target_percent_ - STEP_TARGET_EPSILON) {

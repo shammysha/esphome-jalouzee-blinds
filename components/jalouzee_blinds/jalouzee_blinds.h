@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/preferences.h"
@@ -130,7 +131,7 @@ class JalouzeeBlinds : public cover::Cover, public Component {
     this->in1_pin_ = in1;
     this->in2_pin_ = in2;
   }
-  void set_hall_encoder_pins(GPIOPin *a, GPIOPin *b);
+  void set_hall_encoder_pins(InternalGPIOPin *a, InternalGPIOPin *b);
   void set_adc_pin(InternalGPIOPin *pin) {
     this->adc_gpio_pin_ = pin;
     this->has_adc_ = true;
@@ -198,8 +199,8 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   // ------------------------- поля -------------------------
   GPIOPin *in1_pin_{nullptr};
   GPIOPin *in2_pin_{nullptr};
-  GPIOPin *encoder_a_pin_{nullptr};
-  GPIOPin *encoder_b_pin_{nullptr};
+  InternalGPIOPin *encoder_a_pin_{nullptr};
+  InternalGPIOPin *encoder_b_pin_{nullptr};
   InternalGPIOPin *adc_gpio_pin_{nullptr};
   // Внутренний экземпляр штатного ADC-сенсора ESPHome (ESP-IDF adc_oneshot
   // драйвер). Не регистрируется в App (нет периодического update()) — читаем
@@ -243,6 +244,10 @@ class JalouzeeBlinds : public cover::Cover, public Component {
 
   JalouzeeBlindsStore store_{};
   ESPPreferenceObject pref_;
+
+  // Backing storage for dynamically-built entity names: configure_entity_() only
+  // stores a StringRef (no copy), so these must outlive the entities themselves.
+  std::vector<std::string> entity_name_storage_;
 
   // вложенные сущности (владеет ими данный компонент)
   CalibrationButton *calibration_button_{nullptr};

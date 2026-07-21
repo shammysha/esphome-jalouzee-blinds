@@ -3,6 +3,7 @@ import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import cover, sensor, adc
 from esphome.const import CONF_ID
+from esphome.core import CORE
 
 CODEOWNERS = ["@your-github-handle"]
 DEPENDENCIES = ["esp32"]
@@ -138,6 +139,21 @@ CONFIG_SCHEMA = cv.All(
 
 
 async def to_code(config):
+    # calibration_button_, cancel_calibration_button_, fault_reset_button_,
+    # angle_source_select_, fault_timeout_number_, calibration_text_sensor_,
+    # calibrated_binary_sensor_ and fault_binary_sensor_ are created directly in
+    # C++ (register_sub_entities_) rather than via YAML platforms. Without this,
+    # CORE.platform_counts stays at 0/undersized for these domains, so
+    # USE_SELECT/USE_NUMBER (and the ESPHOME_ENTITY_*_COUNT StaticVector sizing)
+    # never get emitted, and register_select()/register_number() won't exist.
+    for _ in range(3):
+        CORE.register_platform_component("button", None)
+    CORE.register_platform_component("select", None)
+    CORE.register_platform_component("number", None)
+    CORE.register_platform_component("text_sensor", None)
+    for _ in range(2):
+        CORE.register_platform_component("binary_sensor", None)
+
     var = await cover.new_cover(config)
     await cg.register_component(var, config)
 
