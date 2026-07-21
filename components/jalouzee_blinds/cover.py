@@ -9,7 +9,16 @@ DEPENDENCIES = ["esp32"]
 # 'adc' подключаем автоматически (используется внутри компонента для чтения
 # резистора на оси мотора через штатный ESP-IDF ADC-драйвер ESPHome, без
 # необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
-AUTO_LOAD = ["sensor", "adc", "voltage_sampler"]
+AUTO_LOAD = [
+    "sensor",
+    "adc",
+    "voltage_sampler",
+    "button",
+    "select",
+    "number",
+    "text_sensor",
+    "binary_sensor",
+]
 
 jalouzee_blinds_ns = cg.esphome_ns.namespace("jalouzee_blinds")
 JalouzeeBlinds = jalouzee_blinds_ns.class_("JalouzeeBlinds", cover.Cover, cg.Component)
