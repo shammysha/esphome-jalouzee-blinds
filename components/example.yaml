@@ -1,0 +1,89 @@
+substitutions:
+  pin_cw: "GPIO16"
+  pin_ccw: "GPIO17"
+  pin_ph_a: "GPIO23"
+  pin_ph_b: "GPIO32"
+  pin_scl: "GPIO22"
+  pin_sda: "GPIO21"
+
+esphome:
+  name: living-room-blind
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+preferences:
+  flash_write_interval: 1min
+
+# Pull the component from GitHub. While developing locally you can instead
+# point `source:` at a local folder, e.g. `source: components`
+external_components:
+  - source:
+      type: git
+      url: https://github.com/YOUR_GITHUB_USER/esphome-tilt-cover
+      ref: main
+    components: [tilt_cover]
+
+i2c:
+  - id: giro
+    sda: ${pin_sda}
+    scl: ${pin_scl}
+    scan: true
+
+tilt_cover:
+  id: my_tilt_cover
+  pin_cw: ${pin_cw}
+  pin_ccw: ${pin_ccw}
+  pin_ph_a: ${pin_ph_a}
+  pin_ph_b: ${pin_ph_b}
+  angle_sensor: acc_x   # remove this line to use encoder-only mode
+
+cover:
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    name: "Living Room Blind"
+    device_class: blind
+
+binary_sensor:
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    name: "Calibrated"
+  - platform: status
+    name: "Living Room Connection"
+
+# Optional: only needed if you want angle-sensor based positioning instead
+# of encoder-pulse counting. Give the mpu6050's accel_x sub-sensor an id
+# and no `name:` so it stays internal, then point tilt_cover's
+# `angle_sensor:` at it (see the `tilt_cover:` block above).
+sensor:
+  - platform: mpu6050
+    address: 0x68
+    id: gyro
+    update_interval: 100ms
+    accel_x:
+      id: acc_x
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    name: "Calibrate Step"
+
+text_sensor:
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    name: "Calibrate Message"
+
+switch:
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    type: use_angle_sensor
+    name: "Use Angle Sensor"
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    type: has_problem
+    name: "Has Problem"
+
+button:
+  - platform: tilt_cover
+    tilt_cover_id: my_tilt_cover
+    name: "Calibrate"
