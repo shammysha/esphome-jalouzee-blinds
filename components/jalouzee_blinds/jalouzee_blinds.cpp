@@ -125,10 +125,10 @@ void JalouzeeBlinds::register_sub_entities_() {
 
   this->cancel_calibration_button_ = new CancelCalibrationButton();
   this->cancel_calibration_button_->set_parent(this);
-  // доступна только в режиме калибровки (см. on_calibration_button_pressed/cancel_calibration_) —
-  // стартует internal, переключается динамически через (deprecated) set_internal().
-  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Отменить калибровку"), 0,
-                       1u << ENTITY_FIELD_INTERNAL_SHIFT);
+  // Всегда видна в HA — ESPHome не поддерживает динамическое отключение/скрытие
+  // кнопки в рантайме. Нажатие вне калибровки безопасно игнорируется в
+  // on_cancel_calibration_button_pressed().
+  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Отменить калибровку"), 0, 0);
 
   this->fault_reset_button_ = new FaultResetButton();
   this->fault_reset_button_->set_parent(this);
@@ -409,7 +409,6 @@ void JalouzeeBlinds::enter_calibration_() {
   this->target_percent_ = NAN;
   this->jog_mode_ = true;
   this->cal_state_ = CAL_WAIT_CLOSED;
-  this->cancel_calibration_button_->set_internal(false);
   this->set_calibration_message_(MSG_WAIT_CLOSED);
 }
 
@@ -444,7 +443,6 @@ void JalouzeeBlinds::finish_calibration_() {
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
   this->motor_stop_();
-  this->cancel_calibration_button_->set_internal(true);
 
   this->save_to_flash_();
   this->update_calibrated_binary_sensor_();
@@ -463,7 +461,6 @@ void JalouzeeBlinds::cancel_calibration_() {
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
   this->motor_stop_();
-  this->cancel_calibration_button_->set_internal(true);
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
 }
 
