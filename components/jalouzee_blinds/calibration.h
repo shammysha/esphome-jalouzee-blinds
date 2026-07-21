@@ -57,6 +57,8 @@ class Calibration {
   CalibrationRuntime runtime_;
 
   CalibrationStage stage_ = CalibrationStage::NONE;
+
+  bool commit_requested_;
 };
 
 }  // namespace jalouzee_blinds

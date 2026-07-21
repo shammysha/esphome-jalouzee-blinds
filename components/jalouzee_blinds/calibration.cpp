@@ -1,6 +1,7 @@
 #include "calibration.h"
 
 #include <cmath>
+#include <cstdlib>
 
 namespace esphome {
   namespace jalouzee_blinds {
