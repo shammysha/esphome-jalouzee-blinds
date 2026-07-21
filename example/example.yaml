@@ -1,0 +1,66 @@
+# Компонент рассчитан на ESP-IDF (framework: esp-idf) и API уровня
+# современной dev-ветки ESPHome (ADC-oneshot драйвер, ESP-IDF >= 5.3).
+# На момент подготовки этого примера (июль 2026) актуальные релизы ESPHome
+# имеют вид 2026.x.x — версии "2027.x" ещё не существует. Перед прошивкой
+# сверьтесь с CHANGELOG вашей установленной версии ESPHome.
+esphome:
+  name: jalouzee-test
+  min_version: "2025.9.0"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    # версию ESP-IDF при желании можно закрепить явно, например:
+    # version: 5.3.1
+
+# Подключение внешнего компонента.
+# Вариант A — локальная папка (например, при разработке рядом с проектом):
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [jalouzee_blinds]
+
+# Вариант B — из git-репозитория (раскомментируйте и укажите свой репозиторий):
+# external_components:
+#   - source: github://your-github-handle/esphome-jalouzee-blinds
+#     components: [jalouzee_blinds]
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+logger:
+
+# --- Пример 1: угол наклона по датчику Холла (энкодер мотора) + MPU6050 как резерв ---
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+
+sensor:
+  - platform: mpu6050
+    address: 0x68
+    accel_x:
+      name: "MPU6050 Accel X"
+      id: acc_x
+    update_interval: 100ms
+
+cover:
+  - platform: jalouzee_blinds
+    id: blinds
+    name: "Жалюзи гостиная"
+    motor:
+      in1: GPIO25
+      in2: GPIO26
+    encoder:
+      # ВАРИАНТ 1: датчик Холла на моторе (взаимоисключим с adc ниже)
+      a: GPIO32
+      b: GPIO33
+      # ВАРИАНТ 2 (закомментирован, взаимоисключающий с a/b):
+      # adc: GPIO34
+    mpu6050:
+      angle_sensor: acc_x
+    angle_source: auto   # auto | mpu6050 | encoder
+    fault_timeout: 10s

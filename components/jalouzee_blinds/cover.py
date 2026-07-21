@@ -1,12 +1,15 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
-from esphome.components import cover, sensor
+from esphome.components import cover, sensor, adc
 from esphome.const import CONF_ID
 
 CODEOWNERS = ["@your-github-handle"]
-DEPENDENCIES = []
-AUTO_LOAD = ["sensor"]
+DEPENDENCIES = ["esp32"]
+# 'adc' подключаем автоматически (используется внутри компонента для чтения
+# резистора на оси мотора через штатный ESP-IDF ADC-драйвер ESPHome, без
+# необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
+AUTO_LOAD = ["sensor", "adc"]
 
 jalouzee_blinds_ns = cg.esphome_ns.namespace("jalouzee_blinds")
 JalouzeeBlinds = jalouzee_blinds_ns.class_("JalouzeeBlinds", cover.Cover, cg.Component)
@@ -121,6 +124,7 @@ CONFIG_SCHEMA = cv.All(
     )
     .extend(cv.COMPONENT_SCHEMA),
     _validate_root,
+    cv.only_on(["esp32"]),
 )
 
 

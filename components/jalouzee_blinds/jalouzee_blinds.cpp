@@ -2,10 +2,6 @@
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
-#ifdef USE_ARDUINO
-#include <Arduino.h>
-#endif
-
 namespace esphome {
 namespace jalouzee_blinds {
 
@@ -56,8 +52,17 @@ void JalouzeeBlinds::setup() {
     this->encoder_a_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
   }
   // --- ADC (резистор на оси мотора) ---
+  // Используем штатный ADC-компонент ESPHome (ESP-IDF adc_oneshot драйвер,
+  // включая калибровку по эталонной кривой/линии, если она доступна для
+  // конкретного чипа). Объект создаём и настраиваем сами, в App не
+  // регистрируем (не нужен периодический update()) — читаем sample() вручную.
   if (this->has_adc_) {
-    this->adc_pin_->setup();
+    this->adc_sensor_ = new adc::ADCSensor();  // NOLINT(cppcoreguidelines-owning-memory)
+    this->adc_sensor_->set_pin(this->adc_gpio_pin_);
+#ifdef USE_ESP32
+    this->adc_sensor_->set_attenuation(adc::ADC_ATTEN_DB_12_COMPAT);
+#endif
+    this->adc_sensor_->setup();
   }
 
   // --- preferences (flash) ---
@@ -182,7 +187,7 @@ void JalouzeeBlinds::dump_config() {
     ESP_LOGCONFIG(TAG, "  Датчик Холла энкодера: 7 PPR x передаточное число редуктора, A/B заданы");
   }
   if (this->has_adc_) {
-    ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан");
+    ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан (ESP-IDF adc_oneshot драйвер)");
   }
   if (this->has_mpu_) {
     ESP_LOGCONFIG(TAG, "  MPU6050: используется внешний sensor");
@@ -327,13 +332,12 @@ ActiveAngleSource JalouzeeBlinds::resolve_active_source_() {
 }
 
 float JalouzeeBlinds::read_adc_raw_() {
-#ifdef USE_ARDUINO
-  // Примечание: для чтения аналогового значения используется Arduino API.
-  // На ESP-IDF-only сборках замените на esphome::adc::ADCSensor.
-  return static_cast<float>(analogRead(this->adc_pin_->get_pin()));
-#else
-  return NAN;
-#endif
+  if (this->adc_sensor_ == nullptr) return NAN;
+  // sample() выполняет одиночное измерение через ESP-IDF adc_oneshot API
+  // (с калибровкой, если она доступна) и возвращает напряжение в вольтах.
+  // Для наших целей единица измерения неважна — калибровка "закрыто/открыто"
+  // работает с любой монотонной величиной.
+  return this->adc_sensor_->sample();
 }
 
 float JalouzeeBlinds::read_raw_(ActiveAngleSource src) {

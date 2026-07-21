@@ -11,6 +11,7 @@
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/adc/adc_sensor.h"
 
 namespace esphome {
 namespace jalouzee_blinds {
@@ -130,8 +131,8 @@ class JalouzeeBlinds : public cover::Cover, public Component {
     this->in2_pin_ = in2;
   }
   void set_hall_encoder_pins(GPIOPin *a, GPIOPin *b);
-  void set_adc_pin(GPIOPin *pin) {
-    this->adc_pin_ = pin;
+  void set_adc_pin(InternalGPIOPin *pin) {
+    this->adc_gpio_pin_ = pin;
     this->has_adc_ = true;
   }
   void set_mpu6050_sensor(sensor::Sensor *sens) {
@@ -199,7 +200,11 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   GPIOPin *in2_pin_{nullptr};
   GPIOPin *encoder_a_pin_{nullptr};
   GPIOPin *encoder_b_pin_{nullptr};
-  GPIOPin *adc_pin_{nullptr};
+  InternalGPIOPin *adc_gpio_pin_{nullptr};
+  // Внутренний экземпляр штатного ADC-сенсора ESPHome (ESP-IDF adc_oneshot
+  // драйвер). Не регистрируется в App (нет периодического update()) — читаем
+  // значение вручную через sample() когда нужно (см. read_adc_raw_()).
+  adc::ADCSensor *adc_sensor_{nullptr};
   sensor::Sensor *mpu_sensor_{nullptr};
 
   bool has_hall_{false};
