@@ -219,7 +219,7 @@ void JalouzeeBlinds::loop() {
     static uint32_t last_hall_debug_ms = 0;
     if (now - last_hall_debug_ms >= 500) {
       last_hall_debug_ms = now;
-      ESP_LOGD(TAG, "HALL DEBUG: pulse_count=%d a=%d b=%d", this->hall_pulse_count_,
+      ESP_LOGD(TAG, "HALL DEBUG: pulse_count=%ld a=%d b=%d", this->hall_pulse_count_,
                this->encoder_a_pin_->digital_read(), this->encoder_b_pin_->digital_read());
     }
   }
