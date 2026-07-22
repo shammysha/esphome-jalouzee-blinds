@@ -211,6 +211,9 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   GPIOPin *in2_pin_{nullptr};
   InternalGPIOPin *encoder_a_pin_{nullptr};
   InternalGPIOPin *encoder_b_pin_{nullptr};
+  // ISR-safe копия encoder_b_pin_ (см. hall_isr_) — обычный InternalGPIOPin::digital_read()
+  // это виртуальный вызов и не гарантированно безопасен из прерывания.
+  ISRInternalGPIOPin encoder_b_isr_;
   InternalGPIOPin *adc_gpio_pin_{nullptr};
   // Внутренний экземпляр штатного ADC-сенсора ESPHome (ESP-IDF adc_oneshot
   // драйвер). Не регистрируется в App (нет периодического update()) — читаем

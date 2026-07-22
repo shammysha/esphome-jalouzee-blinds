@@ -59,6 +59,7 @@ void JalouzeeBlinds::setup() {
   if (this->has_hall_) {
     this->encoder_a_pin_->setup();
     this->encoder_b_pin_->setup();
+    this->encoder_b_isr_ = this->encoder_b_pin_->to_isr();
     this->encoder_a_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
   }
   // --- ADC (резистор на оси мотора) ---
@@ -400,7 +401,8 @@ float JalouzeeBlinds::raw_to_percent_(ActiveAngleSource src, float raw) {
 
 void JalouzeeBlinds::hall_isr_(JalouzeeBlinds *arg) {
   // простое квадратурное декодирование по фазе B на фронте A
-  bool b_level = arg->encoder_b_pin_->digital_read();
+  // (encoder_b_isr_ — ISR-safe копия пина, обычный digital_read() тут небезопасен)
+  bool b_level = arg->encoder_b_isr_.digital_read();
   if (b_level) {
     arg->hall_pulse_count_++;
   } else {
