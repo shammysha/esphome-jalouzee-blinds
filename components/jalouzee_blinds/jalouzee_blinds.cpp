@@ -410,6 +410,9 @@ void JalouzeeBlinds::enter_calibration_() {
   this->jog_mode_ = true;
   this->cal_state_ = CAL_WAIT_CLOSED;
   this->set_calibration_message_(MSG_WAIT_CLOSED);
+  // 50% держит обе стрелки (вверх/вниз) активными в HA на время калибровки —
+  // реальная позиция ещё не откалибрована, репортим её обратно в finish/cancel.
+  this->publish_state(0.5f);
 }
 
 void JalouzeeBlinds::capture_calibration_point_(bool is_closed_point) {
@@ -444,6 +447,11 @@ void JalouzeeBlinds::finish_calibration_() {
   this->jog_mode_ = false;
   this->motor_stop_();
 
+  // точка "открыто" только что зафиксирована — текущее физическое положение ей и является
+  this->current_percent_ = 100.0f;
+  this->store_.last_angle_percent = this->current_percent_;
+  this->publish_state(this->current_percent_ / 100.0f);
+
   this->save_to_flash_();
   this->update_calibrated_binary_sensor_();
   this->set_calibration_message_(MSG_DONE, /*temporary=*/true);
@@ -462,6 +470,8 @@ void JalouzeeBlinds::cancel_calibration_() {
   this->jog_mode_ = false;
   this->motor_stop_();
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
+  // возвращаем реальную (последнюю известную) позицию вместо принудительных 50%
+  this->publish_state(this->current_percent_ / 100.0f);
 }
 
 void JalouzeeBlinds::set_calibration_message_(const std::string &msg, bool temporary) {
