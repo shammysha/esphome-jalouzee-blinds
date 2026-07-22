@@ -544,6 +544,14 @@ void JalouzeeBlinds::on_fault_timeout_changed(float seconds) {
 // Управление жалюзи (cover::Cover::control) — п.7
 // =====================================================================
 void JalouzeeBlinds::control(const cover::CoverCall &call) {
+  // ВРЕМЕННАЯ диагностика — убрать после выяснения причины бага с блокировкой.
+  ESP_LOGD(TAG,
+           "control() DEBUG: cal_state=%d jog_mode=%d mode=%u hall_cal=%d adc_cal=%d mpu_cal=%d "
+           "operation_blocked=%d resolved_src=%d fault_active=%d",
+           static_cast<int>(this->cal_state_), this->jog_mode_, this->store_.angle_source_mode,
+           this->store_.hall_calibrated, this->store_.adc_calibrated, this->store_.mpu_calibrated,
+           this->operation_blocked_, static_cast<int>(this->resolve_active_source_()), this->fault_active_);
+
   if (this->cal_state_ != CAL_IDLE) {
     // В режиме калибровки: open/close работают как ручной джог "вверх/вниз",
     // stop — останавливает мотор. Кнопка калибровки фиксирует точки.
