@@ -226,6 +226,8 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   bool has_mpu_{false};
 
   volatile int32_t hall_pulse_count_{0};
+  // debounce для hall_isr_ (см. .cpp) — фильтрует дребезг/наводки от DC-мотора
+  volatile uint32_t hall_last_isr_us_{0};
 
   uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};
   uint32_t fault_timeout_s_{10};

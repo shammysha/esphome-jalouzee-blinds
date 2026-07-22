@@ -28,6 +28,12 @@ static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
 static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
 static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
 
+// Debounce для датчика Холла — щёточный DC-мотор рядом с H-мостом создаёт
+// электрические наводки на линиях энкодера, из-за которых прерывание может
+// сработать много раз на один реальный физический фронт (то +1, то -1, в сумме
+// около нуля). Игнорируем срабатывания чаще этого интервала.
+static const uint32_t HALL_DEBOUNCE_US = 1000;  // мкс
+
 // =====================================================================
 // button::Button / select::Select / number::Number обвязки
 // =====================================================================
@@ -400,6 +406,14 @@ float JalouzeeBlinds::raw_to_percent_(ActiveAngleSource src, float raw) {
 }
 
 void JalouzeeBlinds::hall_isr_(JalouzeeBlinds *arg) {
+  // debounce: щёточный мотор рядом наводит помехи, из-за которых один реальный
+  // физический фронт может дать несколько ложных срабатываний подряд.
+  uint32_t now_us = micros();
+  if (now_us - arg->hall_last_isr_us_ < HALL_DEBOUNCE_US) {
+    return;
+  }
+  arg->hall_last_isr_us_ = now_us;
+
   // простое квадратурное декодирование по фазе B на фронте A
   // (encoder_b_isr_ — ISR-safe копия пина, обычный digital_read() тут небезопасен)
   bool b_level = arg->encoder_b_isr_.digital_read();
