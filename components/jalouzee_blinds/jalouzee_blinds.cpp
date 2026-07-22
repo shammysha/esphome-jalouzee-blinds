@@ -1,6 +1,5 @@
 #include <cmath>
 #include "jalouzee_blinds.h"
-#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -19,82 +18,15 @@ static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — минимально�
 static const float STEP_TARGET_EPSILON = 0.5f;    // % — попадание в целевую позицию
 static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 30000;  // не пишем в flash чаще, бережём ресурс
 
-// Минимальная разница |open - closed| для каждого источника, ниже которой калибровка
-// считается невалидной (датчик, скорее всего, не двигался/отключён от ламелей) и
-// НЕ помечается как calibrated — иначе шумный, фактически неподвижный источник может
-// быть ошибочно приоритизирован в режиме auto, а деление на почти нулевой диапазон
-// в raw_to_percent_() усилит шум до полного хода жалюзи.
-static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
-static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
-static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
-
-// Таблица переходов для полного (4x) квадратурного декода датчика Холла (A/B).
-// Индекс — (предыдущее_состояние << 2) | новое_состояние, где состояние = (A<<1)|B.
-// Значение — направление счёта: 0 для "невозможных" переходов (пропущенный
-// фронт/дребезг), ±1 для валидных соседних переходов по коду Грея. Надёжнее,
-// чем угадывать направление по значению соседнего канала в момент прерывания —
-// см. hall_isr_().
-static const int8_t HALL_QUADRATURE_TABLE[16] = {
-    0, -1, 1, 0,   //
-    1, 0, 0, -1,   //
-    -1, 0, 0, 1,   //
-    0, 1, -1, 0,   //
-};
-
-// =====================================================================
-// button::Button / select::Select / number::Number обвязки
-// =====================================================================
-void CalibrationButton::press_action() { this->parent_->on_calibration_button_pressed(); }
-void CancelCalibrationButton::press_action() { this->parent_->on_cancel_calibration_button_pressed(); }
-void FaultResetButton::press_action() { this->parent_->on_fault_reset_button_pressed(); }
-void AngleSourceSelect::control(const std::string &value) {
-  this->parent_->on_angle_source_select_changed(value);
-}
-void FaultTimeoutNumber::control(float value) { this->parent_->on_fault_timeout_changed(value); }
-
 // =====================================================================
 // setup / dump_config
 // =====================================================================
-void JalouzeeBlinds::set_hall_encoder_pins(InternalGPIOPin *a, InternalGPIOPin *b) {
-  this->encoder_a_pin_ = a;
-  this->encoder_b_pin_ = b;
-  this->has_hall_ = true;
-}
-
 void JalouzeeBlinds::setup() {
-  // --- мотор ---
-  this->in1_pin_->setup();
-  this->in2_pin_->setup();
-  this->in1_pin_->digital_write(false);
-  this->in2_pin_->digital_write(false);
+  this->motor_.setup();
+  this->hall_adc_.setup();
 
-  // --- энкодер Холла ---
-  if (this->has_hall_) {
-    this->encoder_a_pin_->setup();
-    this->encoder_b_pin_->setup();
-    this->encoder_a_isr_ = this->encoder_a_pin_->to_isr();
-    this->encoder_b_isr_ = this->encoder_b_pin_->to_isr();
-    // Стартовое состояние — до первого реального фронта, чтобы не засчитать
-    // фантомный переход на первом прерывании.
-    this->hall_last_state_ =
-        (this->encoder_a_pin_->digital_read() ? 2 : 0) | (this->encoder_b_pin_->digital_read() ? 1 : 0);
-    // Полный (4x) квадратурный декод требует прерываний на ОБОИХ каналах, не только A.
-    this->encoder_a_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
-    this->encoder_b_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
-  }
-  // --- ADC (резистор на оси мотора) ---
-  // Используем штатный ADC-компонент ESPHome (ESP-IDF adc_oneshot драйвер,
-  // включая калибровку по эталонной кривой/линии, если она доступна для
-  // конкретного чипа). Объект создаём и настраиваем сами, в App не
-  // регистрируем (не нужен периодический update()) — читаем sample() вручную.
-  if (this->has_adc_) {
-    this->adc_sensor_ = new adc::ADCSensor();  // NOLINT(cppcoreguidelines-owning-memory)
-    this->adc_sensor_->set_pin(this->adc_gpio_pin_);
-#ifdef USE_ESP32
-    this->adc_sensor_->set_attenuation(adc::ADC_ATTEN_DB_12_COMPAT);
-#endif
-    this->adc_sensor_->setup();
-  }
+  this->angle_cal_.set_sensors(&this->hall_adc_, &this->mpu_);
+  this->angle_cal_.set_store(&this->store_);
 
   // --- preferences (flash) ---
   {
@@ -114,11 +46,11 @@ void JalouzeeBlinds::setup() {
 
   // --- п.2: поведение после потери питания, если выбран Hall/ADC ---
   if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) {
-    bool mpu_ok = this->has_mpu_ && this->store_.mpu_calibrated;
+    bool mpu_ok = this->mpu_.has_mpu() && this->store_.mpu_calibrated;
     if (mpu_ok) {
       ESP_LOGW(TAG, "После перезагрузки: показания Hall/ADC не абсолютны или недостоверны. "
                      "Временно (на текущую сессию) используем MPU6050 как источник угла.");
-      // ничего дополнительно менять не нужно — resolve_active_source_() сама
+      // ничего дополнительно менять не нужно — resolve_active_source() сама
       // отдаст приоритет MPU, если store_.angle_source_mode запросил ENCODER,
       // но энкодер ещё не переподтверждён калибровкой в этой сессии.
       // Реализовано через operation_blocked_ = false и forced-фолбэк ниже.
@@ -129,91 +61,30 @@ void JalouzeeBlinds::setup() {
     }
   }
 
-  this->register_sub_entities_();
-  this->update_calibrated_binary_sensor_();
+  {
+    const char *initial_mode = "auto";
+    if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) initial_mode = "mpu6050";
+    else if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) initial_mode = "encoder";
+    this->sub_entities_.setup(this, this->get_name(), this->hall_adc_.has_hall(), this->hall_adc_.has_adc(),
+                               this->mpu_.has_mpu(), initial_mode, this->fault_timeout_s_);
+  }
+  this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
 
   this->position = this->current_percent_ / 100.0f;
   this->publish_state();
 }
 
-void JalouzeeBlinds::register_sub_entities_() {
-  const std::string base_name = this->get_name();
-
-  // configure_entity_() only stores a StringRef (no copy) — keep the built name
-  // strings alive in entity_name_storage_ for the lifetime of the device. Reserve
-  // exactly the number of make_name() calls below so the vector never reallocates
-  // (which would invalidate the c_str() pointers already handed to entities).
-  this->entity_name_storage_.reserve(8);
-  auto make_name = [this](std::string name) -> const char * {
-    this->entity_name_storage_.push_back(std::move(name));
-    return this->entity_name_storage_.back().c_str();
-  };
-
-  this->calibration_button_ = new CalibrationButton();
-  this->calibration_button_->set_parent(this);
-  App.register_button(this->calibration_button_, make_name(base_name + " Калибровка"), 0, 0);
-
-  this->cancel_calibration_button_ = new CancelCalibrationButton();
-  this->cancel_calibration_button_->set_parent(this);
-  // Всегда видна в HA — ESPHome не поддерживает динамическое отключение/скрытие
-  // кнопки в рантайме. Нажатие вне калибровки безопасно игнорируется в
-  // on_cancel_calibration_button_pressed().
-  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Отменить калибровку"), 0, 0);
-
-  this->fault_reset_button_ = new FaultResetButton();
-  this->fault_reset_button_->set_parent(this);
-  App.register_button(this->fault_reset_button_, make_name(base_name + " Сброс аварии"), 0, 0);
-
-  this->angle_source_select_ = new AngleSourceSelect();
-  this->angle_source_select_->set_parent(this);
-  {
-    FixedVector<const char *> options;
-    options.init(3);
-    options.push_back("auto");
-    if (this->has_mpu_)
-      options.push_back("mpu6050");
-    if (this->has_hall_ || this->has_adc_)
-      options.push_back("encoder");
-    this->angle_source_select_->traits.set_options(options);
-  }
-  App.register_select(this->angle_source_select_, make_name(base_name + " Источник угла наклона"), 0, 0);
-  {
-    const char *cur = "auto";
-    if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) cur = "mpu6050";
-    else if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) cur = "encoder";
-    this->angle_source_select_->publish_state(cur);
-  }
-
-  this->fault_timeout_number_ = new FaultTimeoutNumber();
-  this->fault_timeout_number_->set_parent(this);
-  this->fault_timeout_number_->traits.set_min_value(1);
-  this->fault_timeout_number_->traits.set_max_value(300);
-  this->fault_timeout_number_->traits.set_step(1);
-  App.register_number(this->fault_timeout_number_, make_name(base_name + " Таймаут аварии (сек)"), 0, 0);
-  this->fault_timeout_number_->publish_state(this->fault_timeout_s_);
-
-  this->calibration_text_sensor_ = new text_sensor::TextSensor();
-  App.register_text_sensor(this->calibration_text_sensor_, make_name(base_name + " Сообщение калибровки"), 0, 0);
-
-  this->calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name(base_name + " Откалибровано"), 0, 0);
-
-  this->fault_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Авария"), 0, 0);
-  this->fault_binary_sensor_->publish_state(false);
-}
-
 void JalouzeeBlinds::dump_config() {
   ESP_LOGCONFIG(TAG, "Jalouzee Blinds:");
   ESP_LOGCONFIG(TAG, "  Мотор: DC GA12-N20, IN1/IN2 заданы");
-  if (this->has_hall_) {
+  if (this->hall_adc_.has_hall()) {
     ESP_LOGCONFIG(TAG, "  Датчик Холла энкодера: 7 PPR x передаточное число редуктора, A/B заданы");
   }
-  if (this->has_adc_) {
+  if (this->hall_adc_.has_adc()) {
     ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан (ESP-IDF adc_oneshot драйвер)");
   }
-  if (this->has_mpu_) {
+  if (this->mpu_.has_mpu()) {
     ESP_LOGCONFIG(TAG, "  MPU6050: используется внешний sensor");
   }
   ESP_LOGCONFIG(TAG, "  Режим определения угла (сохранён): %u", this->store_.angle_source_mode);
@@ -236,12 +107,12 @@ void JalouzeeBlinds::loop() {
   const uint32_t now = millis();
 
   // ВРЕМЕННАЯ диагностика — убрать после проверки, приходят ли импульсы с Холла.
-  if (this->has_hall_) {
+  if (this->hall_adc_.has_hall()) {
     static uint32_t last_hall_debug_ms = 0;
     if (now - last_hall_debug_ms >= 500) {
       last_hall_debug_ms = now;
-      ESP_LOGD(TAG, "HALL DEBUG: pulse_count=%ld a=%d b=%d", this->hall_pulse_count_,
-               this->encoder_a_pin_->digital_read(), this->encoder_b_pin_->digital_read());
+      ESP_LOGD(TAG, "HALL DEBUG: pulse_count=%ld a=%d b=%d", this->hall_adc_.hall_pulse_count(),
+               this->hall_adc_.hall_pin_a_level(), this->hall_adc_.hall_pin_b_level());
     }
   }
 
@@ -249,14 +120,14 @@ void JalouzeeBlinds::loop() {
   if (this->cal_message_is_temporary_ && now > this->cal_message_expire_ms_) {
     this->cal_message_is_temporary_ = false;
     this->set_calibration_message_(this->cal_state_ == CAL_IDLE ? MSG_ENTER_CALIBRATION
-                                                                  : this->calibration_text_sensor_->state);
+                                                                  : this->sub_entities_.calibration_message_state());
   }
 
   // пересчёт текущего угла (если есть хоть один рабочий калиброванный источник)
-  ActiveAngleSource src = this->resolve_active_source_();
+  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->operation_blocked_);
   if (src != ACTIVE_SOURCE_NONE) {
-    float raw = this->read_raw_(src);
-    float pct = this->raw_to_percent_(src, raw);
+    float raw = this->angle_cal_.read_raw(src);
+    float pct = this->angle_cal_.raw_to_percent(src, raw);
     if (!std::isnan(pct)) {
       if (fabsf(pct - this->last_seen_percent_for_fault_) > FAULT_ANGLE_EPSILON || std::isnan(this->last_seen_percent_for_fault_)) {
         this->last_angle_change_ms_ = now;
@@ -268,7 +139,7 @@ void JalouzeeBlinds::loop() {
 
   if (this->jog_mode_) {
     // ручной джог во время калибровки — без цели, без проверки аварии
-  } else if (this->motor_dir_ != MOTOR_STOP) {
+  } else if (this->motor_.direction() != MOTOR_STOP) {
     this->check_fault_();
     if (!this->fault_active_) {
       this->handle_movement_();
@@ -276,161 +147,13 @@ void JalouzeeBlinds::loop() {
   }
 
   // периодическое сохранение текущего угла (не чаще раза в FLASH_SAVE_MIN_INTERVAL_MS)
-  if (this->motor_dir_ == MOTOR_STOP && (now - this->last_flash_save_ms_) > FLASH_SAVE_MIN_INTERVAL_MS) {
+  if (this->motor_.direction() == MOTOR_STOP && (now - this->last_flash_save_ms_) > FLASH_SAVE_MIN_INTERVAL_MS) {
     if (fabsf(this->current_percent_ - this->store_.last_angle_percent) > 0.5f) {
       this->store_.last_angle_percent = this->current_percent_;
       this->save_to_flash_();
       this->last_flash_save_ms_ = now;
     }
   }
-}
-
-// =====================================================================
-// Мотор
-// =====================================================================
-void JalouzeeBlinds::motor_open_() {
-  this->motor_dir_ = MOTOR_OPENING;
-  this->in1_pin_->digital_write(true);
-  this->in2_pin_->digital_write(false);
-}
-void JalouzeeBlinds::motor_close_() {
-  this->motor_dir_ = MOTOR_CLOSING;
-  this->in1_pin_->digital_write(false);
-  this->in2_pin_->digital_write(true);
-}
-void JalouzeeBlinds::motor_stop_() {
-  this->motor_dir_ = MOTOR_STOP;
-  this->in1_pin_->digital_write(false);
-  this->in2_pin_->digital_write(false);
-}
-
-// =====================================================================
-// Источники угла
-// =====================================================================
-bool JalouzeeBlinds::is_source_calibrated_(ActiveAngleSource src) {
-  switch (src) {
-    case ACTIVE_SOURCE_MPU6050:
-      return this->store_.mpu_calibrated;
-    case ACTIVE_SOURCE_HALL:
-      return this->store_.hall_calibrated;
-    case ACTIVE_SOURCE_ADC:
-      return this->store_.adc_calibrated;
-    default:
-      return false;
-  }
-}
-
-bool JalouzeeBlinds::is_source_available_(ActiveAngleSource src) {
-  switch (src) {
-    case ACTIVE_SOURCE_MPU6050:
-      return this->has_mpu_ && this->mpu_sensor_ != nullptr && this->mpu_sensor_->has_state();
-    case ACTIVE_SOURCE_HALL:
-      return this->has_hall_;
-    case ACTIVE_SOURCE_ADC:
-      return this->has_adc_;
-    default:
-      return false;
-  }
-}
-
-ActiveAngleSource JalouzeeBlinds::resolve_active_source_() {
-  uint8_t mode = this->store_.angle_source_mode;
-
-  auto hall_or_adc_active = [this]() -> ActiveAngleSource {
-    if (this->has_hall_ && this->is_source_calibrated_(ACTIVE_SOURCE_HALL)) return ACTIVE_SOURCE_HALL;
-    if (this->has_adc_ && this->is_source_calibrated_(ACTIVE_SOURCE_ADC)) return ACTIVE_SOURCE_ADC;
-    return ACTIVE_SOURCE_NONE;
-  };
-  auto mpu_active = [this]() -> ActiveAngleSource {
-    if (this->has_mpu_ && this->is_source_available_(ACTIVE_SOURCE_MPU6050) &&
-        this->is_source_calibrated_(ACTIVE_SOURCE_MPU6050))
-      return ACTIVE_SOURCE_MPU6050;
-    return ACTIVE_SOURCE_NONE;
-  };
-
-  if (mode == ANGLE_SOURCE_MPU6050) {
-    return mpu_active();
-  }
-  if (mode == ANGLE_SOURCE_ENCODER) {
-    // п.2: если после потери питания энкодер ещё не переподтверждён —
-    // используем MPU как временный fallback этой сессии, если он доступен.
-    if (this->operation_blocked_) return ACTIVE_SOURCE_NONE;
-    ActiveAngleSource enc = hall_or_adc_active();
-    if (enc != ACTIVE_SOURCE_NONE) return enc;
-    return mpu_active();
-  }
-  // AUTO: приоритет 1) MPU6050  2) Hall/ADC
-  ActiveAngleSource m = mpu_active();
-  if (m != ACTIVE_SOURCE_NONE) return m;
-  return hall_or_adc_active();
-}
-
-float JalouzeeBlinds::read_adc_raw_() {
-  if (this->adc_sensor_ == nullptr) return NAN;
-  // sample() выполняет одиночное измерение через ESP-IDF adc_oneshot API
-  // (с калибровкой, если она доступна) и возвращает напряжение в вольтах.
-  // Для наших целей единица измерения неважна — калибровка "закрыто/открыто"
-  // работает с любой монотонной величиной.
-  return this->adc_sensor_->sample();
-}
-
-float JalouzeeBlinds::read_raw_(ActiveAngleSource src) {
-  switch (src) {
-    case ACTIVE_SOURCE_MPU6050:
-      return this->mpu_sensor_->state;
-    case ACTIVE_SOURCE_HALL:
-      return static_cast<float>(this->hall_pulse_count_);
-    case ACTIVE_SOURCE_ADC:
-      return this->read_adc_raw_();
-    default:
-      return NAN;
-  }
-}
-
-float JalouzeeBlinds::raw_to_percent_(ActiveAngleSource src, float raw) {
-  float closed = 0, open = 0, min_delta = 0;
-  switch (src) {
-    case ACTIVE_SOURCE_MPU6050:
-      closed = this->store_.mpu_closed;
-      open = this->store_.mpu_open;
-      min_delta = MPU_MIN_CAL_DELTA;
-      break;
-    case ACTIVE_SOURCE_HALL:
-      closed = this->store_.hall_closed;
-      open = this->store_.hall_open;
-      min_delta = HALL_MIN_CAL_DELTA;
-      break;
-    case ACTIVE_SOURCE_ADC:
-      closed = this->store_.adc_closed;
-      open = this->store_.adc_open;
-      min_delta = ADC_MIN_CAL_DELTA;
-      break;
-    default:
-      return NAN;
-  }
-  // Защита от старых/повреждённых калибровочных данных с почти нулевым диапазоном
-  // (см. HALL/ADC/MPU_MIN_CAL_DELTA) — иначе шум усиливается делением на ~0.
-  if (fabsf(open - closed) < min_delta) return NAN;
-  // формула сама учитывает "зеркальность" установки датчика (п.5):
-  // если open < closed, знаменатель отрицательный — направление инвертируется автоматически.
-  float pct = (raw - closed) / (open - closed) * 100.0f;
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  return pct;
-}
-
-void JalouzeeBlinds::hall_isr_(JalouzeeBlinds *arg) {
-  // Полный (4x) квадратурный декод по обоим каналам (см. HALL_QUADRATURE_TABLE) —
-  // прерывание срабатывает на любом фронте A ИЛИ B, читаем оба уровня и по
-  // таблице переходов получаем ±1 либо 0 (для "невозможных"/дребезговых
-  // переходов, которые не отбрасывались надёжно при декоде только по одному
-  // каналу).
-  uint8_t a = arg->encoder_a_isr_.digital_read() ? 1 : 0;
-  uint8_t b = arg->encoder_b_isr_.digital_read() ? 1 : 0;
-  uint8_t new_state = (a << 1) | b;
-  uint8_t index = (arg->hall_last_state_ << 2) | new_state;
-  arg->hall_pulse_count_ += HALL_QUADRATURE_TABLE[index];
-  arg->hall_last_state_ = new_state;
 }
 
 // =====================================================================
@@ -455,7 +178,7 @@ void JalouzeeBlinds::on_calibration_button_pressed() {
 
 void JalouzeeBlinds::enter_calibration_() {
   ESP_LOGI(TAG, "Начало калибровки");
-  this->motor_stop_();
+  this->motor_.stop();
   this->target_percent_ = NAN;
   this->jog_mode_ = true;
   this->cal_state_ = CAL_WAIT_CLOSED;
@@ -468,61 +191,32 @@ void JalouzeeBlinds::enter_calibration_() {
 
 void JalouzeeBlinds::capture_calibration_point_(bool is_closed_point) {
   if (is_closed_point) {
-    if (this->has_hall_) this->temp_hall_closed_ = static_cast<float>(this->hall_pulse_count_);
-    if (this->has_adc_) this->temp_adc_closed_ = this->read_adc_raw_();
-    if (this->has_mpu_ && this->mpu_sensor_ != nullptr) this->temp_mpu_closed_ = this->mpu_sensor_->state;
+    if (this->hall_adc_.has_hall()) this->temp_hall_closed_ = this->hall_adc_.read_hall_raw();
+    if (this->hall_adc_.has_adc()) this->temp_adc_closed_ = this->hall_adc_.read_adc_raw();
+    if (this->mpu_.has_mpu()) this->temp_mpu_closed_ = this->mpu_.read_raw();
   }
   // "открытая" точка обрабатывается сразу в finish_calibration_()
 }
 
 void JalouzeeBlinds::finish_calibration_() {
-  // сохраняем данные калибровки для ВСЕХ доступных датчиков (п.3), но только если
-  // реально зафиксировано движение — иначе источник остаётся некалиброванным.
-  if (this->has_hall_) {
-    float hall_open = static_cast<float>(this->hall_pulse_count_);
-    if (fabsf(hall_open - this->temp_hall_closed_) >= HALL_MIN_CAL_DELTA) {
-      this->store_.hall_closed = this->temp_hall_closed_;
-      this->store_.hall_open = hall_open;
-      this->store_.hall_calibrated = true;
-    } else {
-      this->store_.hall_calibrated = false;
-      this->store_.hall_closed = this->store_.hall_open = NAN;  // сброс для auto_calibrate_capture_()
-      ESP_LOGW(TAG, "Калибровка Hall отклонена: движение не обнаружено (разница %.1f имп.)",
-               fabsf(hall_open - this->temp_hall_closed_));
-    }
+  // пытаемся принять калибровку для ВСЕХ доступных датчиков (п.3), но только
+  // если реально зафиксировано движение — иначе источник остаётся некалиброванным
+  // (см. AngleCalibration::try_finish_calibration).
+  if (this->hall_adc_.has_hall()) {
+    this->angle_cal_.try_finish_calibration(ACTIVE_SOURCE_HALL, this->temp_hall_closed_,
+                                             this->hall_adc_.read_hall_raw());
   }
-  if (this->has_adc_) {
-    float adc_open = this->read_adc_raw_();
-    if (fabsf(adc_open - this->temp_adc_closed_) >= ADC_MIN_CAL_DELTA) {
-      this->store_.adc_closed = this->temp_adc_closed_;
-      this->store_.adc_open = adc_open;
-      this->store_.adc_calibrated = true;
-    } else {
-      this->store_.adc_calibrated = false;
-      this->store_.adc_closed = this->store_.adc_open = NAN;  // сброс для auto_calibrate_capture_()
-      ESP_LOGW(TAG, "Калибровка ADC отклонена: движение не обнаружено (разница %.3f В)",
-               fabsf(adc_open - this->temp_adc_closed_));
-    }
+  if (this->hall_adc_.has_adc()) {
+    this->angle_cal_.try_finish_calibration(ACTIVE_SOURCE_ADC, this->temp_adc_closed_, this->hall_adc_.read_adc_raw());
   }
-  if (this->has_mpu_ && this->mpu_sensor_ != nullptr) {
-    float mpu_open = this->mpu_sensor_->state;
-    if (fabsf(mpu_open - this->temp_mpu_closed_) >= MPU_MIN_CAL_DELTA) {
-      this->store_.mpu_closed = this->temp_mpu_closed_;
-      this->store_.mpu_open = mpu_open;
-      this->store_.mpu_calibrated = true;
-    } else {
-      this->store_.mpu_calibrated = false;
-      this->store_.mpu_closed = this->store_.mpu_open = NAN;  // сброс для auto_calibrate_capture_()
-      ESP_LOGW(TAG, "Калибровка MPU6050 отклонена: движение не обнаружено (разница %.3f м/с² — "
-                     "датчик, вероятно, отключён от ламелей)",
-               fabsf(mpu_open - this->temp_mpu_closed_));
-    }
+  if (this->mpu_.has_mpu()) {
+    this->angle_cal_.try_finish_calibration(ACTIVE_SOURCE_MPU6050, this->temp_mpu_closed_, this->mpu_.read_raw());
   }
 
   this->operation_blocked_ = false;
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
-  this->motor_stop_();
+  this->motor_.stop();
 
   // точка "открыто" только что зафиксирована — текущее физическое положение ей и является
   this->current_percent_ = 100.0f;
@@ -531,87 +225,10 @@ void JalouzeeBlinds::finish_calibration_() {
   this->publish_state();
 
   this->save_to_flash_();
-  this->update_calibrated_binary_sensor_();
+  this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
   this->set_calibration_message_(MSG_DONE, /*temporary=*/true);
 
   ESP_LOGI(TAG, "Калибровка завершена и сохранена");
-}
-
-void JalouzeeBlinds::try_auto_calibrate_at_endpoint_(bool is_closed_point) {
-  if (this->has_hall_ && !this->store_.hall_calibrated) {
-    this->auto_calibrate_capture_(ACTIVE_SOURCE_HALL, is_closed_point, static_cast<float>(this->hall_pulse_count_));
-  }
-  if (this->has_adc_ && !this->store_.adc_calibrated) {
-    this->auto_calibrate_capture_(ACTIVE_SOURCE_ADC, is_closed_point, this->read_adc_raw_());
-  }
-  if (this->has_mpu_ && this->mpu_sensor_ != nullptr && !this->store_.mpu_calibrated &&
-      this->mpu_sensor_->has_state()) {
-    this->auto_calibrate_capture_(ACTIVE_SOURCE_MPU6050, is_closed_point, this->mpu_sensor_->state);
-  }
-}
-
-void JalouzeeBlinds::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
-  // Работаем через локальные копии, а не указатели на поля store_ — она
-  // __attribute__((packed)), и &store_.hall_closed и т.п. дают предупреждение
-  // компилятора о невыровненном указателе (-Waddress-of-packed-member).
-  float closed = NAN, open = NAN, min_delta = 0;
-  const char *name = "";
-  switch (src) {
-    case ACTIVE_SOURCE_HALL:
-      closed = this->store_.hall_closed;
-      open = this->store_.hall_open;
-      min_delta = HALL_MIN_CAL_DELTA;
-      name = "Hall";
-      break;
-    case ACTIVE_SOURCE_ADC:
-      closed = this->store_.adc_closed;
-      open = this->store_.adc_open;
-      min_delta = ADC_MIN_CAL_DELTA;
-      name = "ADC";
-      break;
-    case ACTIVE_SOURCE_MPU6050:
-      closed = this->store_.mpu_closed;
-      open = this->store_.mpu_open;
-      min_delta = MPU_MIN_CAL_DELTA;
-      name = "MPU6050";
-      break;
-    default:
-      return;
-  }
-
-  if (is_closed_point) {
-    closed = raw;
-  } else {
-    open = raw;
-  }
-
-  bool now_calibrated = !std::isnan(closed) && !std::isnan(open) && fabsf(open - closed) >= min_delta;
-
-  switch (src) {
-    case ACTIVE_SOURCE_HALL:
-      this->store_.hall_closed = closed;
-      this->store_.hall_open = open;
-      if (now_calibrated) this->store_.hall_calibrated = true;
-      break;
-    case ACTIVE_SOURCE_ADC:
-      this->store_.adc_closed = closed;
-      this->store_.adc_open = open;
-      if (now_calibrated) this->store_.adc_calibrated = true;
-      break;
-    case ACTIVE_SOURCE_MPU6050:
-      this->store_.mpu_closed = closed;
-      this->store_.mpu_open = open;
-      if (now_calibrated) this->store_.mpu_calibrated = true;
-      break;
-    default:
-      break;
-  }
-
-  if (now_calibrated) {
-    this->save_to_flash_();
-    this->update_calibrated_binary_sensor_();
-    ESP_LOGI(TAG, "Автокалибровка %s завершена по опорным точкам активного источника", name);
-  }
 }
 
 void JalouzeeBlinds::on_cancel_calibration_button_pressed() {
@@ -623,7 +240,7 @@ void JalouzeeBlinds::cancel_calibration_() {
   ESP_LOGI(TAG, "Калибровка отменена пользователем");
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
-  this->motor_stop_();
+  this->motor_.stop();
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
   // возвращаем реальную (последнюю известную) позицию вместо принудительных 50%
   this->position = this->current_percent_ / 100.0f;
@@ -631,16 +248,11 @@ void JalouzeeBlinds::cancel_calibration_() {
 }
 
 void JalouzeeBlinds::set_calibration_message_(const std::string &msg, bool temporary) {
-  this->calibration_text_sensor_->publish_state(msg);
+  this->sub_entities_.set_calibration_message(msg);
   this->cal_message_is_temporary_ = temporary;
   if (temporary) {
     this->cal_message_expire_ms_ = millis() + 5000;
   }
-}
-
-void JalouzeeBlinds::update_calibrated_binary_sensor_() {
-  bool calibrated = this->store_.hall_calibrated || this->store_.adc_calibrated || this->store_.mpu_calibrated;
-  this->calibrated_binary_sensor_->publish_state(calibrated);
 }
 
 // =====================================================================
@@ -657,9 +269,9 @@ void JalouzeeBlinds::trigger_fault_() {
   if (this->fault_active_) return;
   ESP_LOGE(TAG, "АВАРИЯ: угол наклона не меняется дольше %lu с при активном движении мотора", this->fault_timeout_s_);
   this->fault_active_ = true;
-  this->motor_stop_();
+  this->motor_.stop();
   this->target_percent_ = NAN;
-  this->fault_binary_sensor_->publish_state(true);
+  this->sub_entities_.set_fault(true);
 }
 
 void JalouzeeBlinds::on_fault_reset_button_pressed() {
@@ -672,7 +284,7 @@ void JalouzeeBlinds::clear_fault_() {
   this->fault_active_ = false;
   this->last_angle_change_ms_ = millis();
   this->last_seen_percent_for_fault_ = NAN;
-  this->fault_binary_sensor_->publish_state(false);
+  this->sub_entities_.set_fault(false);
 }
 
 // =====================================================================
@@ -683,16 +295,16 @@ void JalouzeeBlinds::on_angle_source_select_changed(const std::string &value) {
   if (value == "mpu6050") mode = ANGLE_SOURCE_MPU6050;
   else if (value == "encoder") mode = ANGLE_SOURCE_ENCODER;
 
-  this->store_.angle_source_mode = mode;
+  this->angle_cal_.set_mode(mode);
   this->save_to_flash_();
-  this->angle_source_select_->publish_state(value);
+  this->sub_entities_.set_angle_source_state(value);
   ESP_LOGI(TAG, "Режим определения угла изменён пользователем: %s", value.c_str());
 }
 
 void JalouzeeBlinds::on_fault_timeout_changed(float seconds) {
   if (seconds < 1) seconds = 1;
   this->fault_timeout_s_ = static_cast<uint32_t>(seconds);
-  this->fault_timeout_number_->publish_state(this->fault_timeout_s_);
+  this->sub_entities_.set_fault_timeout_state(this->fault_timeout_s_);
   ESP_LOGI(TAG, "Таймаут аварии изменён: %lu с", this->fault_timeout_s_);
 }
 
@@ -704,13 +316,13 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
     // В режиме калибровки: open/close работают как ручной джог "вверх/вниз",
     // stop — останавливает мотор. Кнопка калибровки фиксирует точки.
     if (call.get_stop()) {
-      this->motor_stop_();
+      this->motor_.stop();
       return;
     }
     if (call.get_position().has_value()) {
       float pos = *call.get_position();
-      if (pos >= 0.5f) this->motor_open_();
-      else this->motor_close_();
+      if (pos >= 0.5f) this->motor_.open();
+      else this->motor_.close();
       return;
     }
     return;
@@ -719,7 +331,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
   // Блокируем управление, если нет ни одного откалиброванного и доступного сейчас
   // источника угла — это покрывает и полностью не откалиброванное устройство
   // (после первой прошивки), и уже существующий кейс operation_blocked_ (см. setup()).
-  if (this->resolve_active_source_() == ACTIVE_SOURCE_NONE) {
+  if (this->angle_cal_.resolve_active_source(this->operation_blocked_) == ACTIVE_SOURCE_NONE) {
     ESP_LOGW(TAG, "Управление жалюзи заблокировано: нет откалиброванного источника угла. "
                    "Выполните калибровку.");
     return;
@@ -730,7 +342,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
   }
 
   if (call.get_stop()) {
-    this->motor_stop_();
+    this->motor_.stop();
     this->target_percent_ = NAN;
     return;
   }
@@ -771,11 +383,11 @@ void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
   this->last_seen_percent_for_fault_ = NAN;
 
   if (target_percent > this->current_percent_ + STEP_TARGET_EPSILON) {
-    this->motor_open_();
+    this->motor_.open();
   } else if (target_percent < this->current_percent_ - STEP_TARGET_EPSILON) {
-    this->motor_close_();
+    this->motor_.close();
   } else {
-    this->motor_stop_();
+    this->motor_.stop();
   }
 }
 
@@ -783,15 +395,16 @@ void JalouzeeBlinds::handle_movement_() {
   if (std::isnan(this->target_percent_)) return;
 
   bool reached = false;
-  if (this->motor_dir_ == MOTOR_OPENING && this->current_percent_ >= this->target_percent_ - STEP_TARGET_EPSILON) {
+  if (this->motor_.direction() == MOTOR_OPENING &&
+      this->current_percent_ >= this->target_percent_ - STEP_TARGET_EPSILON) {
     reached = true;
-  } else if (this->motor_dir_ == MOTOR_CLOSING &&
+  } else if (this->motor_.direction() == MOTOR_CLOSING &&
              this->current_percent_ <= this->target_percent_ + STEP_TARGET_EPSILON) {
     reached = true;
   }
 
   if (reached) {
-    this->motor_stop_();
+    this->motor_.stop();
     this->target_percent_ = NAN;
     this->store_.last_angle_percent = this->current_percent_;
     this->save_to_flash_();
@@ -800,11 +413,18 @@ void JalouzeeBlinds::handle_movement_() {
     this->publish_state();
 
     // Реально дошли до края хода — оппортунистическая автокалибровка любых
-    // доступных, но пока не откалиброванных источников (см. try_auto_calibrate_at_endpoint_).
+    // доступных, но пока не откалиброванных источников (см. AngleCalibration).
+    bool auto_calibrated;
     if (this->current_percent_ <= STEP_TARGET_EPSILON) {
-      this->try_auto_calibrate_at_endpoint_(true);
+      auto_calibrated = this->angle_cal_.try_auto_calibrate_at_endpoint(true);
     } else if (this->current_percent_ >= 100.0f - STEP_TARGET_EPSILON) {
-      this->try_auto_calibrate_at_endpoint_(false);
+      auto_calibrated = this->angle_cal_.try_auto_calibrate_at_endpoint(false);
+    } else {
+      auto_calibrated = false;
+    }
+    if (auto_calibrated) {
+      this->save_to_flash_();
+      this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
     }
   } else {
     this->position = this->current_percent_ / 100.0f;
@@ -823,11 +443,9 @@ void JalouzeeBlinds::load_from_flash_() {
     this->store_.angle_source_mode = this->configured_angle_source_mode_;
   }
   // Для НЕоткалиброванных источников closed/open должны быть NAN (а не 0.0 из
-  // zero-init/старых данных), иначе auto_calibrate_capture_() ошибочно решит,
-  // что одна из точек уже поймана.
-  if (!this->store_.hall_calibrated) this->store_.hall_closed = this->store_.hall_open = NAN;
-  if (!this->store_.adc_calibrated) this->store_.adc_closed = this->store_.adc_open = NAN;
-  if (!this->store_.mpu_calibrated) this->store_.mpu_closed = this->store_.mpu_open = NAN;
+  // zero-init/старых данных), иначе auto-калибровка ошибочно решит, что одна
+  // из точек уже поймана.
+  this->angle_cal_.normalize_uncalibrated();
 }
 
 }  // namespace jalouzee_blinds
