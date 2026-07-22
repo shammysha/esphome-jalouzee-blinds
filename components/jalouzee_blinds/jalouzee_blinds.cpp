@@ -516,29 +516,27 @@ void JalouzeeBlinds::try_auto_calibrate_at_endpoint_(bool is_closed_point) {
 }
 
 void JalouzeeBlinds::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
-  float *closed_ptr = nullptr, *open_ptr = nullptr;
-  bool *calibrated_ptr = nullptr;
-  float min_delta = 0;
+  // Работаем через локальные копии, а не указатели на поля store_ — она
+  // __attribute__((packed)), и &store_.hall_closed и т.п. дают предупреждение
+  // компилятора о невыровненном указателе (-Waddress-of-packed-member).
+  float closed = NAN, open = NAN, min_delta = 0;
   const char *name = "";
   switch (src) {
     case ACTIVE_SOURCE_HALL:
-      closed_ptr = &this->store_.hall_closed;
-      open_ptr = &this->store_.hall_open;
-      calibrated_ptr = &this->store_.hall_calibrated;
+      closed = this->store_.hall_closed;
+      open = this->store_.hall_open;
       min_delta = HALL_MIN_CAL_DELTA;
       name = "Hall";
       break;
     case ACTIVE_SOURCE_ADC:
-      closed_ptr = &this->store_.adc_closed;
-      open_ptr = &this->store_.adc_open;
-      calibrated_ptr = &this->store_.adc_calibrated;
+      closed = this->store_.adc_closed;
+      open = this->store_.adc_open;
       min_delta = ADC_MIN_CAL_DELTA;
       name = "ADC";
       break;
     case ACTIVE_SOURCE_MPU6050:
-      closed_ptr = &this->store_.mpu_closed;
-      open_ptr = &this->store_.mpu_open;
-      calibrated_ptr = &this->store_.mpu_calibrated;
+      closed = this->store_.mpu_closed;
+      open = this->store_.mpu_open;
       min_delta = MPU_MIN_CAL_DELTA;
       name = "MPU6050";
       break;
@@ -547,13 +545,34 @@ void JalouzeeBlinds::auto_calibrate_capture_(ActiveAngleSource src, bool is_clos
   }
 
   if (is_closed_point) {
-    *closed_ptr = raw;
+    closed = raw;
   } else {
-    *open_ptr = raw;
+    open = raw;
   }
 
-  if (!std::isnan(*closed_ptr) && !std::isnan(*open_ptr) && fabsf(*open_ptr - *closed_ptr) >= min_delta) {
-    *calibrated_ptr = true;
+  bool now_calibrated = !std::isnan(closed) && !std::isnan(open) && fabsf(open - closed) >= min_delta;
+
+  switch (src) {
+    case ACTIVE_SOURCE_HALL:
+      this->store_.hall_closed = closed;
+      this->store_.hall_open = open;
+      if (now_calibrated) this->store_.hall_calibrated = true;
+      break;
+    case ACTIVE_SOURCE_ADC:
+      this->store_.adc_closed = closed;
+      this->store_.adc_open = open;
+      if (now_calibrated) this->store_.adc_calibrated = true;
+      break;
+    case ACTIVE_SOURCE_MPU6050:
+      this->store_.mpu_closed = closed;
+      this->store_.mpu_open = open;
+      if (now_calibrated) this->store_.mpu_calibrated = true;
+      break;
+    default:
+      break;
+  }
+
+  if (now_calibrated) {
     this->save_to_flash_();
     this->update_calibrated_binary_sensor_();
     ESP_LOGI(TAG, "Автокалибровка %s завершена по опорным точкам активного источника", name);
