@@ -1,5 +1,5 @@
 #include <cmath>
-#include "angle_calibration.h"
+#include "controller.h"
 #include "esphome/core/log.h"
 
 namespace esphome {

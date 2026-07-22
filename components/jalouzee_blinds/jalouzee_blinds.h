@@ -8,9 +8,9 @@
 #include "esphome/components/sensor/sensor.h"
 #include "store.h"
 #include "motor_controller.h"
-#include "hall_adc_sensor.h"
+#include "motor_sensor.h"
 #include "mpu_sensor.h"
-#include "angle_calibration.h"
+#include "controller.h"
 #include "sub_entities.h"
 
 namespace esphome {

@@ -1,5 +1,5 @@
 #include <cmath>
-#include "hall_adc_sensor.h"
+#include "motor_sensor.h"
 
 namespace esphome {
 namespace jalouzee_blinds {

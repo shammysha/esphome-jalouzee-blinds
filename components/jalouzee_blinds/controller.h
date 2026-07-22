@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include "store.h"
-#include "hall_adc_sensor.h"
+#include "motor_sensor.h"
 #include "mpu_sensor.h"
 
 namespace esphome {
