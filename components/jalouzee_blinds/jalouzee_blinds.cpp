@@ -186,7 +186,7 @@ void JalouzeeBlinds::dump_config() {
     ESP_LOGCONFIG(TAG, "  MPU6050: используется внешний sensor");
   }
   ESP_LOGCONFIG(TAG, "  Режим определения угла (сохранён): %u", this->store_.angle_source_mode);
-  ESP_LOGCONFIG(TAG, "  Таймаут аварии: %u с", this->fault_timeout_s_);
+  ESP_LOGCONFIG(TAG, "  Таймаут аварии: %lu с", this->fault_timeout_s_);
 }
 
 cover::CoverTraits JalouzeeBlinds::get_traits() {
@@ -499,7 +499,7 @@ void JalouzeeBlinds::check_fault_() {
 
 void JalouzeeBlinds::trigger_fault_() {
   if (this->fault_active_) return;
-  ESP_LOGE(TAG, "АВАРИЯ: угол наклона не меняется дольше %u с при активном движении мотора", this->fault_timeout_s_);
+  ESP_LOGE(TAG, "АВАРИЯ: угол наклона не меняется дольше %lu с при активном движении мотора", this->fault_timeout_s_);
   this->fault_active_ = true;
   this->motor_stop_();
   this->target_percent_ = NAN;
@@ -537,7 +537,7 @@ void JalouzeeBlinds::on_fault_timeout_changed(float seconds) {
   if (seconds < 1) seconds = 1;
   this->fault_timeout_s_ = static_cast<uint32_t>(seconds);
   this->fault_timeout_number_->publish_state(this->fault_timeout_s_);
-  ESP_LOGI(TAG, "Таймаут аварии изменён: %u с", this->fault_timeout_s_);
+  ESP_LOGI(TAG, "Таймаут аварии изменён: %lu с", this->fault_timeout_s_);
 }
 
 // =====================================================================
