@@ -201,7 +201,7 @@ void JalouzeeBlinds::capture_calibration_point_(bool is_closed_point) {
 void JalouzeeBlinds::finish_calibration_() {
   // пытаемся принять калибровку для ВСЕХ доступных датчиков (п.3), но только
   // если реально зафиксировано движение — иначе источник остаётся некалиброванным
-  // (см. AngleCalibration::try_finish_calibration).
+  // (см. Controller::try_finish_calibration).
   if (this->hall_adc_.has_hall()) {
     this->angle_cal_.try_finish_calibration(ACTIVE_SOURCE_HALL, this->temp_hall_closed_,
                                              this->hall_adc_.read_hall_raw());
@@ -413,7 +413,7 @@ void JalouzeeBlinds::handle_movement_() {
     this->publish_state();
 
     // Реально дошли до края хода — оппортунистическая автокалибровка любых
-    // доступных, но пока не откалиброванных источников (см. AngleCalibration).
+    // доступных, но пока не откалиброванных источников (см. Controller).
     bool auto_calibrated;
     if (this->current_percent_ <= STEP_TARGET_EPSILON) {
       auto_calibrated = this->angle_cal_.try_auto_calibrate_at_endpoint(true);

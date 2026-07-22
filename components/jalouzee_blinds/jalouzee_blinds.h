@@ -77,9 +77,9 @@ class JalouzeeBlinds : public cover::Cover, public Component {
 
   // ------------------------- компоненты -------------------------
   MotorController motor_;
-  HallAdcSensor hall_adc_;
+  MotorSensor hall_adc_;
   MpuSensor mpu_;
-  AngleCalibration angle_cal_;
+  Controller angle_cal_;
   SubEntities sub_entities_;
 
   uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};

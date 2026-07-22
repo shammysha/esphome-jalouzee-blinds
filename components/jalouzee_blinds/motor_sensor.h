@@ -9,8 +9,8 @@ namespace jalouzee_blinds {
 // Датчики, физически расположенные на/у оси мотора: квадратурный Hall-энкодер
 // (7 PPR x передаточное число редуктора) и/или резистор на оси, читаемый через
 // штатный ADC-компонент ESPHome. Оба взаимоисключающие способы определения
-// угла через энкодер/резистор на быстром валу мотора (см. AngleCalibration).
-class HallAdcSensor {
+// угла через энкодер/резистор на быстром валу мотора (см. Controller).
+class MotorSensor {
  public:
   void set_hall_pins(InternalGPIOPin *a, InternalGPIOPin *b) {
     this->encoder_a_pin_ = a;
@@ -36,7 +36,7 @@ class HallAdcSensor {
   bool hall_pin_b_level() const { return this->encoder_b_pin_->digital_read(); }
 
  protected:
-  static void hall_isr_(HallAdcSensor *arg);
+  static void hall_isr_(MotorSensor *arg);
 
   InternalGPIOPin *encoder_a_pin_{nullptr};
   InternalGPIOPin *encoder_b_pin_{nullptr};

@@ -17,7 +17,7 @@ static const int8_t HALL_QUADRATURE_TABLE[16] = {
     0, 1, -1, 0,   //
 };
 
-void HallAdcSensor::setup() {
+void MotorSensor::setup() {
   if (this->has_hall_) {
     this->encoder_a_pin_->setup();
     this->encoder_b_pin_->setup();
@@ -28,8 +28,8 @@ void HallAdcSensor::setup() {
     this->hall_last_state_ =
         (this->encoder_a_pin_->digital_read() ? 2 : 0) | (this->encoder_b_pin_->digital_read() ? 1 : 0);
     // Полный (4x) квадратурный декод требует прерываний на ОБОИХ каналах, не только A.
-    this->encoder_a_pin_->attach_interrupt(&HallAdcSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
-    this->encoder_b_pin_->attach_interrupt(&HallAdcSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
+    this->encoder_a_pin_->attach_interrupt(&MotorSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
+    this->encoder_b_pin_->attach_interrupt(&MotorSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
   }
   // --- ADC (резистор на оси мотора) ---
   // Используем штатный ADC-компонент ESPHome (ESP-IDF adc_oneshot драйвер,
@@ -46,7 +46,7 @@ void HallAdcSensor::setup() {
   }
 }
 
-float HallAdcSensor::read_adc_raw() {
+float MotorSensor::read_adc_raw() {
   if (this->adc_sensor_ == nullptr) return NAN;
   // sample() выполняет одиночное измерение через ESP-IDF adc_oneshot API
   // (с калибровкой, если она доступна) и возвращает напряжение в вольтах.
@@ -55,7 +55,7 @@ float HallAdcSensor::read_adc_raw() {
   return this->adc_sensor_->sample();
 }
 
-void HallAdcSensor::hall_isr_(HallAdcSensor *arg) {
+void MotorSensor::hall_isr_(MotorSensor *arg) {
   // Полный (4x) квадратурный декод по обоим каналам (см. HALL_QUADRATURE_TABLE) —
   // прерывание срабатывает на любом фронте A ИЛИ B, читаем оба уровня и по
   // таблице переходов получаем ±1 либо 0 (для "невозможных"/дребезговых

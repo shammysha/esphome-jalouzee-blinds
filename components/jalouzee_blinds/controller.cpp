@@ -16,17 +16,17 @@ static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
 static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
 static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
 
-void AngleCalibration::normalize_uncalibrated() {
+void Controller::normalize_uncalibrated() {
   if (!this->store_->hall_calibrated) this->store_->hall_closed = this->store_->hall_open = NAN;
   if (!this->store_->adc_calibrated) this->store_->adc_closed = this->store_->adc_open = NAN;
   if (!this->store_->mpu_calibrated) this->store_->mpu_closed = this->store_->mpu_open = NAN;
 }
 
-bool AngleCalibration::is_any_calibrated() const {
+bool Controller::is_any_calibrated() const {
   return this->store_->hall_calibrated || this->store_->adc_calibrated || this->store_->mpu_calibrated;
 }
 
-bool AngleCalibration::is_source_calibrated_(ActiveAngleSource src) const {
+bool Controller::is_source_calibrated_(ActiveAngleSource src) const {
   switch (src) {
     case ACTIVE_SOURCE_MPU6050:
       return this->store_->mpu_calibrated;
@@ -39,7 +39,7 @@ bool AngleCalibration::is_source_calibrated_(ActiveAngleSource src) const {
   }
 }
 
-bool AngleCalibration::is_source_available_(ActiveAngleSource src) const {
+bool Controller::is_source_available_(ActiveAngleSource src) const {
   switch (src) {
     case ACTIVE_SOURCE_MPU6050:
       return this->mpu_->is_available();
@@ -52,7 +52,7 @@ bool AngleCalibration::is_source_available_(ActiveAngleSource src) const {
   }
 }
 
-ActiveAngleSource AngleCalibration::resolve_active_source(bool operation_blocked) const {
+ActiveAngleSource Controller::resolve_active_source(bool operation_blocked) const {
   uint8_t mode = this->store_->angle_source_mode;
 
   auto hall_or_adc_active = [this]() -> ActiveAngleSource {
@@ -84,7 +84,7 @@ ActiveAngleSource AngleCalibration::resolve_active_source(bool operation_blocked
   return hall_or_adc_active();
 }
 
-float AngleCalibration::read_raw(ActiveAngleSource src) const {
+float Controller::read_raw(ActiveAngleSource src) const {
   switch (src) {
     case ACTIVE_SOURCE_MPU6050:
       return this->mpu_->read_raw();
@@ -97,7 +97,7 @@ float AngleCalibration::read_raw(ActiveAngleSource src) const {
   }
 }
 
-float AngleCalibration::raw_to_percent(ActiveAngleSource src, float raw) const {
+float Controller::raw_to_percent(ActiveAngleSource src, float raw) const {
   float closed = 0, open = 0, min_delta = 0;
   switch (src) {
     case ACTIVE_SOURCE_MPU6050:
@@ -129,7 +129,7 @@ float AngleCalibration::raw_to_percent(ActiveAngleSource src, float raw) const {
   return pct;
 }
 
-bool AngleCalibration::try_finish_calibration(ActiveAngleSource src, float closed, float open) {
+bool Controller::try_finish_calibration(ActiveAngleSource src, float closed, float open) {
   float min_delta = 0;
   float delta = fabsf(open - closed);
   bool accepted;
@@ -183,7 +183,7 @@ bool AngleCalibration::try_finish_calibration(ActiveAngleSource src, float close
   return accepted;
 }
 
-bool AngleCalibration::try_auto_calibrate_at_endpoint(bool is_closed_point) {
+bool Controller::try_auto_calibrate_at_endpoint(bool is_closed_point) {
   bool any = false;
   if (this->hall_adc_->has_hall() && !this->store_->hall_calibrated) {
     any |= this->auto_calibrate_capture_(ACTIVE_SOURCE_HALL, is_closed_point, this->hall_adc_->read_hall_raw());
@@ -197,7 +197,7 @@ bool AngleCalibration::try_auto_calibrate_at_endpoint(bool is_closed_point) {
   return any;
 }
 
-bool AngleCalibration::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
+bool Controller::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
   // Работаем через локальные копии, а не указатели на поля store_ — она
   // __attribute__((packed)), и &store_->hall_closed и т.п. дают предупреждение
   // компилятора о невыровненном указателе (-Waddress-of-packed-member).

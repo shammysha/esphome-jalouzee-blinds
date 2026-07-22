@@ -30,9 +30,9 @@ enum ActiveAngleSource : uint8_t {
 // (resolve_active_source), пересчётом сырого значения в проценты
 // (raw_to_percent), и оппортунистической автокалибровкой отклонённых
 // источников (try_auto_calibrate_at_endpoint).
-class AngleCalibration {
+class Controller {
  public:
-  void set_sensors(HallAdcSensor *hall_adc, MpuSensor *mpu) {
+  void set_sensors(MotorSensor *hall_adc, MpuSensor *mpu) {
     this->hall_adc_ = hall_adc;
     this->mpu_ = mpu;
   }
@@ -78,7 +78,7 @@ class AngleCalibration {
   bool is_source_available_(ActiveAngleSource src) const;
   bool auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw);
 
-  HallAdcSensor *hall_adc_{nullptr};
+  MotorSensor *hall_adc_{nullptr};
   MpuSensor *mpu_{nullptr};
   JalouzeeBlindsStore *store_{nullptr};
 };
