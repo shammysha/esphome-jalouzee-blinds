@@ -211,8 +211,10 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   GPIOPin *in2_pin_{nullptr};
   InternalGPIOPin *encoder_a_pin_{nullptr};
   InternalGPIOPin *encoder_b_pin_{nullptr};
-  // ISR-safe копия encoder_b_pin_ (см. hall_isr_) — обычный InternalGPIOPin::digital_read()
-  // это виртуальный вызов и не гарантированно безопасен из прерывания.
+  // ISR-safe копии encoder_a_pin_/encoder_b_pin_ (см. hall_isr_) — обычный
+  // InternalGPIOPin::digital_read() это виртуальный вызов и не гарантированно
+  // безопасен из прерывания.
+  ISRInternalGPIOPin encoder_a_isr_;
   ISRInternalGPIOPin encoder_b_isr_;
   InternalGPIOPin *adc_gpio_pin_{nullptr};
   // Внутренний экземпляр штатного ADC-сенсора ESPHome (ESP-IDF adc_oneshot
@@ -226,8 +228,9 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   bool has_mpu_{false};
 
   volatile int32_t hall_pulse_count_{0};
-  // debounce для hall_isr_ (см. .cpp) — фильтрует дребезг/наводки от DC-мотора
-  volatile uint32_t hall_last_isr_us_{0};
+  // Текущее 2-битное состояние (A<<1|B) для полного (4x) квадратурного декода
+  // в hall_isr_ — см. .cpp.
+  volatile uint8_t hall_last_state_{0};
 
   uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};
   uint32_t fault_timeout_s_{10};

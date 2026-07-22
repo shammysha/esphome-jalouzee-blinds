@@ -28,11 +28,18 @@ static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
 static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
 static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
 
-// Debounce для датчика Холла — щёточный DC-мотор рядом с H-мостом создаёт
-// электрические наводки на линиях энкодера, из-за которых прерывание может
-// сработать много раз на один реальный физический фронт (то +1, то -1, в сумме
-// около нуля). Игнорируем срабатывания чаще этого интервала.
-static const uint32_t HALL_DEBOUNCE_US = 1000;  // мкс
+// Таблица переходов для полного (4x) квадратурного декода датчика Холла (A/B).
+// Индекс — (предыдущее_состояние << 2) | новое_состояние, где состояние = (A<<1)|B.
+// Значение — направление счёта: 0 для "невозможных" переходов (пропущенный
+// фронт/дребезг), ±1 для валидных соседних переходов по коду Грея. Надёжнее,
+// чем угадывать направление по значению соседнего канала в момент прерывания —
+// см. hall_isr_().
+static const int8_t HALL_QUADRATURE_TABLE[16] = {
+    0, -1, 1, 0,   //
+    1, 0, 0, -1,   //
+    -1, 0, 0, 1,   //
+    0, 1, -1, 0,   //
+};
 
 // =====================================================================
 // button::Button / select::Select / number::Number обвязки
@@ -65,8 +72,15 @@ void JalouzeeBlinds::setup() {
   if (this->has_hall_) {
     this->encoder_a_pin_->setup();
     this->encoder_b_pin_->setup();
+    this->encoder_a_isr_ = this->encoder_a_pin_->to_isr();
     this->encoder_b_isr_ = this->encoder_b_pin_->to_isr();
+    // Стартовое состояние — до первого реального фронта, чтобы не засчитать
+    // фантомный переход на первом прерывании.
+    this->hall_last_state_ =
+        (this->encoder_a_pin_->digital_read() ? 2 : 0) | (this->encoder_b_pin_->digital_read() ? 1 : 0);
+    // Полный (4x) квадратурный декод требует прерываний на ОБОИХ каналах, не только A.
     this->encoder_a_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
+    this->encoder_b_pin_->attach_interrupt(&JalouzeeBlinds::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
   }
   // --- ADC (резистор на оси мотора) ---
   // Используем штатный ADC-компонент ESPHome (ESP-IDF adc_oneshot драйвер,
@@ -406,22 +420,17 @@ float JalouzeeBlinds::raw_to_percent_(ActiveAngleSource src, float raw) {
 }
 
 void JalouzeeBlinds::hall_isr_(JalouzeeBlinds *arg) {
-  // debounce: щёточный мотор рядом наводит помехи, из-за которых один реальный
-  // физический фронт может дать несколько ложных срабатываний подряд.
-  uint32_t now_us = micros();
-  if (now_us - arg->hall_last_isr_us_ < HALL_DEBOUNCE_US) {
-    return;
-  }
-  arg->hall_last_isr_us_ = now_us;
-
-  // простое квадратурное декодирование по фазе B на фронте A
-  // (encoder_b_isr_ — ISR-safe копия пина, обычный digital_read() тут небезопасен)
-  bool b_level = arg->encoder_b_isr_.digital_read();
-  if (b_level) {
-    arg->hall_pulse_count_++;
-  } else {
-    arg->hall_pulse_count_--;
-  }
+  // Полный (4x) квадратурный декод по обоим каналам (см. HALL_QUADRATURE_TABLE) —
+  // прерывание срабатывает на любом фронте A ИЛИ B, читаем оба уровня и по
+  // таблице переходов получаем ±1 либо 0 (для "невозможных"/дребезговых
+  // переходов, которые не отбрасывались надёжно при декоде только по одному
+  // каналу).
+  uint8_t a = arg->encoder_a_isr_.digital_read() ? 1 : 0;
+  uint8_t b = arg->encoder_b_isr_.digital_read() ? 1 : 0;
+  uint8_t new_state = (a << 1) | b;
+  uint8_t index = (arg->hall_last_state_ << 2) | new_state;
+  arg->hall_pulse_count_ += HALL_QUADRATURE_TABLE[index];
+  arg->hall_last_state_ = new_state;
 }
 
 // =====================================================================
