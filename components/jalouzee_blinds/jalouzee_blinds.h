@@ -177,6 +177,16 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void capture_calibration_point_(bool is_closed_point);
   void finish_calibration_();
   void set_calibration_message_(const std::string &msg, bool temporary = false);
+
+  // --- оппортунистическая автокалибровка отклонённых источников ---
+  // Когда жалюзи реально доходят до 0%/100% (по уже доверенному активному
+  // источнику) в обычном режиме работы, ловим эту же точку для любого
+  // доступного, но ещё не откалиброванного источника (например, MPU, чья
+  // ручная калибровка была отклонена из-за отсутствия движения) — так он
+  // сможет самостоятельно доехать до calibrated=true, если его позже
+  // физически восстановят, без повторного ручного прохода.
+  void try_auto_calibrate_at_endpoint_(bool is_closed_point);
+  void auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw);
   void update_calibrated_binary_sensor_();
 
   // --- движение к цели / логика 3 положений ---

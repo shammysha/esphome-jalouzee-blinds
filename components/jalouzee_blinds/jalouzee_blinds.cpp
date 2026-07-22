@@ -19,6 +19,15 @@ static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — минимально�
 static const float STEP_TARGET_EPSILON = 0.5f;    // % — попадание в целевую позицию
 static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 30000;  // не пишем в flash чаще, бережём ресурс
 
+// Минимальная разница |open - closed| для каждого источника, ниже которой калибровка
+// считается невалидной (датчик, скорее всего, не двигался/отключён от ламелей) и
+// НЕ помечается как calibrated — иначе шумный, фактически неподвижный источник может
+// быть ошибочно приоритизирован в режиме auto, а деление на почти нулевой диапазон
+// в raw_to_percent_() усилит шум до полного хода жалюзи.
+static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
+static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
+static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
+
 // =====================================================================
 // button::Button / select::Select / number::Number обвязки
 // =====================================================================
@@ -348,24 +357,29 @@ float JalouzeeBlinds::read_raw_(ActiveAngleSource src) {
 }
 
 float JalouzeeBlinds::raw_to_percent_(ActiveAngleSource src, float raw) {
-  float closed = 0, open = 0;
+  float closed = 0, open = 0, min_delta = 0;
   switch (src) {
     case ACTIVE_SOURCE_MPU6050:
       closed = this->store_.mpu_closed;
       open = this->store_.mpu_open;
+      min_delta = MPU_MIN_CAL_DELTA;
       break;
     case ACTIVE_SOURCE_HALL:
       closed = this->store_.hall_closed;
       open = this->store_.hall_open;
+      min_delta = HALL_MIN_CAL_DELTA;
       break;
     case ACTIVE_SOURCE_ADC:
       closed = this->store_.adc_closed;
       open = this->store_.adc_open;
+      min_delta = ADC_MIN_CAL_DELTA;
       break;
     default:
       return NAN;
   }
-  if (open == closed) return NAN;
+  // Защита от старых/повреждённых калибровочных данных с почти нулевым диапазоном
+  // (см. HALL/ADC/MPU_MIN_CAL_DELTA) — иначе шум усиливается делением на ~0.
+  if (fabsf(open - closed) < min_delta) return NAN;
   // формула сама учитывает "зеркальность" установки датчика (п.5):
   // если open < closed, знаменатель отрицательный — направление инвертируется автоматически.
   float pct = (raw - closed) / (open - closed) * 100.0f;
@@ -427,21 +441,47 @@ void JalouzeeBlinds::capture_calibration_point_(bool is_closed_point) {
 }
 
 void JalouzeeBlinds::finish_calibration_() {
-  // сохраняем данные калибровки для ВСЕХ доступных датчиков (п.3)
+  // сохраняем данные калибровки для ВСЕХ доступных датчиков (п.3), но только если
+  // реально зафиксировано движение — иначе источник остаётся некалиброванным.
   if (this->has_hall_) {
-    this->store_.hall_closed = this->temp_hall_closed_;
-    this->store_.hall_open = static_cast<float>(this->hall_pulse_count_);
-    this->store_.hall_calibrated = true;
+    float hall_open = static_cast<float>(this->hall_pulse_count_);
+    if (fabsf(hall_open - this->temp_hall_closed_) >= HALL_MIN_CAL_DELTA) {
+      this->store_.hall_closed = this->temp_hall_closed_;
+      this->store_.hall_open = hall_open;
+      this->store_.hall_calibrated = true;
+    } else {
+      this->store_.hall_calibrated = false;
+      this->store_.hall_closed = this->store_.hall_open = NAN;  // сброс для auto_calibrate_capture_()
+      ESP_LOGW(TAG, "Калибровка Hall отклонена: движение не обнаружено (разница %.1f имп.)",
+               fabsf(hall_open - this->temp_hall_closed_));
+    }
   }
   if (this->has_adc_) {
-    this->store_.adc_closed = this->temp_adc_closed_;
-    this->store_.adc_open = this->read_adc_raw_();
-    this->store_.adc_calibrated = true;
+    float adc_open = this->read_adc_raw_();
+    if (fabsf(adc_open - this->temp_adc_closed_) >= ADC_MIN_CAL_DELTA) {
+      this->store_.adc_closed = this->temp_adc_closed_;
+      this->store_.adc_open = adc_open;
+      this->store_.adc_calibrated = true;
+    } else {
+      this->store_.adc_calibrated = false;
+      this->store_.adc_closed = this->store_.adc_open = NAN;  // сброс для auto_calibrate_capture_()
+      ESP_LOGW(TAG, "Калибровка ADC отклонена: движение не обнаружено (разница %.3f В)",
+               fabsf(adc_open - this->temp_adc_closed_));
+    }
   }
   if (this->has_mpu_ && this->mpu_sensor_ != nullptr) {
-    this->store_.mpu_closed = this->temp_mpu_closed_;
-    this->store_.mpu_open = this->mpu_sensor_->state;
-    this->store_.mpu_calibrated = true;
+    float mpu_open = this->mpu_sensor_->state;
+    if (fabsf(mpu_open - this->temp_mpu_closed_) >= MPU_MIN_CAL_DELTA) {
+      this->store_.mpu_closed = this->temp_mpu_closed_;
+      this->store_.mpu_open = mpu_open;
+      this->store_.mpu_calibrated = true;
+    } else {
+      this->store_.mpu_calibrated = false;
+      this->store_.mpu_closed = this->store_.mpu_open = NAN;  // сброс для auto_calibrate_capture_()
+      ESP_LOGW(TAG, "Калибровка MPU6050 отклонена: движение не обнаружено (разница %.3f м/с² — "
+                     "датчик, вероятно, отключён от ламелей)",
+               fabsf(mpu_open - this->temp_mpu_closed_));
+    }
   }
 
   this->operation_blocked_ = false;
@@ -460,6 +500,64 @@ void JalouzeeBlinds::finish_calibration_() {
   this->set_calibration_message_(MSG_DONE, /*temporary=*/true);
 
   ESP_LOGI(TAG, "Калибровка завершена и сохранена");
+}
+
+void JalouzeeBlinds::try_auto_calibrate_at_endpoint_(bool is_closed_point) {
+  if (this->has_hall_ && !this->store_.hall_calibrated) {
+    this->auto_calibrate_capture_(ACTIVE_SOURCE_HALL, is_closed_point, static_cast<float>(this->hall_pulse_count_));
+  }
+  if (this->has_adc_ && !this->store_.adc_calibrated) {
+    this->auto_calibrate_capture_(ACTIVE_SOURCE_ADC, is_closed_point, this->read_adc_raw_());
+  }
+  if (this->has_mpu_ && this->mpu_sensor_ != nullptr && !this->store_.mpu_calibrated &&
+      this->mpu_sensor_->has_state()) {
+    this->auto_calibrate_capture_(ACTIVE_SOURCE_MPU6050, is_closed_point, this->mpu_sensor_->state);
+  }
+}
+
+void JalouzeeBlinds::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
+  float *closed_ptr = nullptr, *open_ptr = nullptr;
+  bool *calibrated_ptr = nullptr;
+  float min_delta = 0;
+  const char *name = "";
+  switch (src) {
+    case ACTIVE_SOURCE_HALL:
+      closed_ptr = &this->store_.hall_closed;
+      open_ptr = &this->store_.hall_open;
+      calibrated_ptr = &this->store_.hall_calibrated;
+      min_delta = HALL_MIN_CAL_DELTA;
+      name = "Hall";
+      break;
+    case ACTIVE_SOURCE_ADC:
+      closed_ptr = &this->store_.adc_closed;
+      open_ptr = &this->store_.adc_open;
+      calibrated_ptr = &this->store_.adc_calibrated;
+      min_delta = ADC_MIN_CAL_DELTA;
+      name = "ADC";
+      break;
+    case ACTIVE_SOURCE_MPU6050:
+      closed_ptr = &this->store_.mpu_closed;
+      open_ptr = &this->store_.mpu_open;
+      calibrated_ptr = &this->store_.mpu_calibrated;
+      min_delta = MPU_MIN_CAL_DELTA;
+      name = "MPU6050";
+      break;
+    default:
+      return;
+  }
+
+  if (is_closed_point) {
+    *closed_ptr = raw;
+  } else {
+    *open_ptr = raw;
+  }
+
+  if (!std::isnan(*closed_ptr) && !std::isnan(*open_ptr) && fabsf(*open_ptr - *closed_ptr) >= min_delta) {
+    *calibrated_ptr = true;
+    this->save_to_flash_();
+    this->update_calibrated_binary_sensor_();
+    ESP_LOGI(TAG, "Автокалибровка %s завершена по опорным точкам активного источника", name);
+  }
 }
 
 void JalouzeeBlinds::on_cancel_calibration_button_pressed() {
@@ -646,6 +744,14 @@ void JalouzeeBlinds::handle_movement_() {
     this->last_flash_save_ms_ = millis();
     this->position = this->current_percent_ / 100.0f;
     this->publish_state();
+
+    // Реально дошли до края хода — оппортунистическая автокалибровка любых
+    // доступных, но пока не откалиброванных источников (см. try_auto_calibrate_at_endpoint_).
+    if (this->current_percent_ <= STEP_TARGET_EPSILON) {
+      this->try_auto_calibrate_at_endpoint_(true);
+    } else if (this->current_percent_ >= 100.0f - STEP_TARGET_EPSILON) {
+      this->try_auto_calibrate_at_endpoint_(false);
+    }
   } else {
     this->position = this->current_percent_ / 100.0f;
     this->publish_state();
@@ -662,6 +768,12 @@ void JalouzeeBlinds::load_from_flash_() {
     this->store_ = JalouzeeBlindsStore{};
     this->store_.angle_source_mode = this->configured_angle_source_mode_;
   }
+  // Для НЕоткалиброванных источников closed/open должны быть NAN (а не 0.0 из
+  // zero-init/старых данных), иначе auto_calibrate_capture_() ошибочно решит,
+  // что одна из точек уже поймана.
+  if (!this->store_.hall_calibrated) this->store_.hall_closed = this->store_.hall_open = NAN;
+  if (!this->store_.adc_calibrated) this->store_.adc_closed = this->store_.adc_open = NAN;
+  if (!this->store_.mpu_calibrated) this->store_.mpu_closed = this->store_.mpu_open = NAN;
 }
 
 }  // namespace jalouzee_blinds
