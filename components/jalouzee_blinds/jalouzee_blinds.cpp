@@ -214,6 +214,16 @@ cover::CoverTraits JalouzeeBlinds::get_traits() {
 void JalouzeeBlinds::loop() {
   const uint32_t now = millis();
 
+  // ВРЕМЕННАЯ диагностика — убрать после проверки, приходят ли импульсы с Холла.
+  if (this->has_hall_) {
+    static uint32_t last_hall_debug_ms = 0;
+    if (now - last_hall_debug_ms >= 500) {
+      last_hall_debug_ms = now;
+      ESP_LOGD(TAG, "HALL DEBUG: pulse_count=%d a=%d b=%d", this->hall_pulse_count_,
+               this->encoder_a_pin_->digital_read(), this->encoder_b_pin_->digital_read());
+    }
+  }
+
   // истечение временного сообщения калибровки ("Калибровка завершена")
   if (this->cal_message_is_temporary_ && now > this->cal_message_expire_ms_) {
     this->cal_message_is_temporary_ = false;
