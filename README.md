@@ -71,7 +71,6 @@ sensor:
   - platform: mpu6050
     address: 0x68
     accel_x:
-      name: "MPU6050 Accel X"
       id: acc_x
     update_interval: 100ms
 
