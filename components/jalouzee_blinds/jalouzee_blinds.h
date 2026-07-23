@@ -108,6 +108,13 @@ class JalouzeeBlinds : public cover::Cover, public Component {
 
   // после потери питания без валидного источника
   bool operation_blocked_{false};
+  // Hall не считается надёжным в этой сессии — см. resolve_active_source()/
+  // setup(). В отличие от operation_blocked_ (нет вообще никакого источника —
+  // блокируем управление) может быть true, даже когда MPU6050 доступен как
+  // fallback и управление разрешено — иначе в режиме "encoder" (без
+  // авто-переключения на MPU) resolve_active_source() продолжила бы доверять
+  // недостоверному Hall.
+  bool hall_untrusted_{false};
 
   // движение
   bool jog_mode_{false};  // true = ручной jog во время калибровки (без цели/без проверки аварии)

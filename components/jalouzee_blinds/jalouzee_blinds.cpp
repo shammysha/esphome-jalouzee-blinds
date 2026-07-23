@@ -75,13 +75,19 @@ void JalouzeeBlinds::setup() {
     this->save_to_flash_();
   }
   if (movement_interrupted && this->hall_adc_.has_hall()) {
+    // Гасим Hall независимо от наличия MPU-fallback — hall_untrusted_ не
+    // смешиваем с operation_blocked_ (которое лишь означает "нет вообще
+    // никакого источника, управление заблокировано"), иначе в режиме
+    // "encoder" (без авто-переключения на MPU) resolve_active_source() не
+    // получила бы сигнал недоверия и продолжила бы доверять Hall.
+    this->hall_untrusted_ = true;
     bool mpu_ok = this->mpu_.has_mpu() && this->store_.mpu_calibrated;
     if (mpu_ok) {
       ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания. Позиция Hall недостоверна — "
                      "временно (на текущую сессию) используем MPU6050 как источник угла.");
       // ничего дополнительно менять не нужно — resolve_active_source() сама
       // отдаст приоритет MPU и не станет использовать Hall, пока он не будет
-      // переподтверждён калибровкой. Реализовано через operation_blocked_.
+      // переподтверждён калибровкой. Реализовано через hall_untrusted_.
     } else {
       ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания, а резервный MPU6050 "
                      "недоступен/не откалиброван. Управление жалюзи заблокировано до калибровки.");
@@ -142,7 +148,7 @@ void JalouzeeBlinds::loop() {
   }
 
   // пересчёт текущего угла (если есть хоть один рабочий калиброванный источник)
-  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->operation_blocked_);
+  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->hall_untrusted_);
   if (src != ACTIVE_SOURCE_NONE) {
     float raw = this->angle_cal_.read_raw(src);
     float pct = this->angle_cal_.raw_to_percent(src, raw);
@@ -233,6 +239,7 @@ void JalouzeeBlinds::finish_calibration_() {
   }
 
   this->operation_blocked_ = false;
+  this->hall_untrusted_ = false;
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
   this->motor_.stop();
@@ -364,7 +371,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
   // Блокируем управление, если нет ни одного откалиброванного и доступного сейчас
   // источника угла — это покрывает и полностью не откалиброванное устройство
   // (после первой прошивки), и обнаруженное прерванное движение (см. setup()).
-  if (this->angle_cal_.resolve_active_source(this->operation_blocked_) == ACTIVE_SOURCE_NONE) {
+  if (this->angle_cal_.resolve_active_source(this->hall_untrusted_) == ACTIVE_SOURCE_NONE) {
     ESP_LOGW(TAG, "Управление жалюзи заблокировано: нет откалиброванного источника угла. "
                    "Выполните калибровку.");
     return;
