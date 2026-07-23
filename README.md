@@ -34,14 +34,9 @@
 
 | Источник | Пример | Ссылки |
 |---|---|---|
-| MPU6050 (готовый модуль GY-521) | ![MPU6050](https://commons.wikimedia.org/wiki/Special:FilePath/Mpu6050-big-HD.jpg?width=220) | [фото/описание — Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Mpu6050-big-HD.jpg) |
-| GA12-N20 со встроенным датчиком Холла | — | [Amazon](https://www.amazon.com/GA12-N20-Magnetic-Hall-Encoder-Motor/dp/B0DJ88ZGPS), [AliExpress](https://www.aliexpress.com/item/1005007886406269.html) |
-| GA12-N20 без датчика Холла + потенциометр на выходном валу | — | мотор: [Zbotic](https://zbotic.in/product/ga12-n20-6v-2000rpm-micro-dc-metal-gear-reduction-motor/); потенциометр: [Bourns 3382G-1-103G на Amazon](https://www.amazon.com/Bourns-3382G-1-103G-Rotary-Potentiometer-Position/dp/B0FLGF57KN), [на Farnell](https://uk.farnell.com/bourns/3382g-1-103g/position-sensor-resistive-3pin/dp/1717387) |
-
-Фото моторов и потенциометра не встроил напрямую — это чужие товарные
-фотографии продавцов (не свободная лицензия, ссылки на конкретных продавцов
-могут "протухнуть"), поэтому оставил только ссылки на страницы товаров.
-Фото MPU6050 — с Wikimedia Commons, CC-BY-3.0, поэтому вставлено напрямую.
+| MPU6050 (готовый модуль GY-521) | [MPU6050](pics/mpu6050.png) |
+| GA12-N20 со встроенным датчиком Холла | [GA12-N20](pics/ga12-n20-hall.png) | 
+| GA12-N20 без датчика Холла + потенциометр на выходном валу | [GA12-N20](pics/ga12-n20-potentiometer.png) | 
 
 ## Установка
 
