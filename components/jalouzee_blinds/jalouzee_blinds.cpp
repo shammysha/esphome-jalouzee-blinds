@@ -25,7 +25,7 @@ static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 300000;  // 5 мин
 // publish_state() во время движения не чаще этого интервала — без throttling
 // вызывался бы на каждой итерации loop() (сотни-тысячи раз в секунду), забивая
 // API-соединение и мешая обработке входящих команд (см. обсуждение лагов).
-static const uint32_t POSITION_PUBLISH_INTERVAL_MS = 250;
+static const uint32_t POSITION_PUBLISH_INTERVAL_MS = 1000;
 
 // =====================================================================
 // setup / dump_config
