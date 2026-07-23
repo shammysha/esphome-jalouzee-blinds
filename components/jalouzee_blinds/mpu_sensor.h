@@ -5,9 +5,10 @@
 namespace esphome {
 namespace jalouzee_blinds {
 
-// Тонкая обёртка над внешним sensor::Sensor (конкретная ось акселерометра
-// MPU6050 или готовый угол из отдельного template sensor, см. cover.py).
-// Компонент лишь калибрует диапазон "закрыто..открыто" по значениям этого сенсора.
+// Thin wrapper around an external sensor::Sensor (a specific MPU6050
+// accelerometer axis, or a ready-made angle from a separate template
+// sensor, see cover.py). The component only calibrates the
+// "closed..open" range against this sensor's values.
 class MpuSensor {
  public:
   void set_sensor(sensor::Sensor *sens) {

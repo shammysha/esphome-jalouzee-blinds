@@ -11,8 +11,8 @@ enum MotorDirection : uint8_t {
   MOTOR_CLOSING = 2,
 };
 
-// Обёртка над DC-мотором на двух пинах (IN1/IN2) без ШИМ/энкодера скорости —
-// направление задаётся комбинацией digital_write, останов — оба LOW.
+// Wrapper around a DC motor on two pins (IN1/IN2), no PWM/speed encoder —
+// direction is set via a digital_write combination, stop is both LOW.
 class MotorController {
  public:
   void set_pins(GPIOPin *in1, GPIOPin *in2) {

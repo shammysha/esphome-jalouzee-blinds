@@ -14,10 +14,11 @@ namespace jalouzee_blinds {
 class JalouzeeBlinds;
 
 // ---------------------------------------------------------------------------
-// Вспомогательные сущности, создаваемые компонентом автоматически
-// (в YAML не конфигурируются, см. п. "Внутри компонента создаются автоматически").
-// press_action()/control() лишь пересылают событие родителю (JalouzeeBlinds) —
-// решение, что с ним делать, остаётся в общей логике.
+// Helper entities created automatically by the component (not configurable
+// in YAML — see "Entities created automatically" in the README).
+// press_action()/control() just forward the event to the parent
+// (JalouzeeBlinds) — the decision of what to do with it stays in the
+// general logic.
 // ---------------------------------------------------------------------------
 
 class CalibrationButton : public button::Button {
@@ -65,9 +66,9 @@ class FaultTimeoutNumber : public number::Number {
   JalouzeeBlinds *parent_{nullptr};
 };
 
-// Создание/регистрация вложенных сущностей и публикация их состояния —
-// "работа с сенсорами". Реакция на нажатия/изменения (см. классы выше)
-// остаётся в JalouzeeBlinds (общая логика).
+// Creates/registers the nested entities and publishes their state — "sensor
+// bookkeeping". Reacting to presses/changes (see the classes above) stays
+// in JalouzeeBlinds (general logic).
 class SubEntities {
  public:
   void setup(JalouzeeBlinds *parent, const std::string &base_name, bool has_hall, bool has_adc, bool has_mpu,
@@ -81,10 +82,10 @@ class SubEntities {
   void set_angle_source_state(const std::string &value) { this->angle_source_select_->publish_state(value); }
   void set_fault_timeout_state(uint32_t seconds) { this->fault_timeout_number_->publish_state(seconds); }
 
-  // Диагностические сенсоры калибровки по каждому НАСТРОЕННОМУ источнику
-  // (создаются только для тех, что реально сконфигурированы в YAML — см.
-  // has_hall/has_adc/has_mpu в setup()). Публикация без эффекта, если
-  // соответствующий источник не настроен (указатель nullptr).
+  // Diagnostic calibration sensors for each CONFIGURED source (only created
+  // for the ones actually set up in YAML — see has_hall/has_adc/has_mpu in
+  // setup()). Publishing is a no-op if the corresponding source isn't
+  // configured (nullptr pointer).
   void set_hall_calibrated(bool calibrated) {
     if (this->hall_calibrated_binary_sensor_ != nullptr) this->hall_calibrated_binary_sensor_->publish_state(calibrated);
   }
@@ -110,7 +111,7 @@ class SubEntities {
   text_sensor::TextSensor *calibration_text_sensor_{nullptr};
   binary_sensor::BinarySensor *calibrated_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *fault_binary_sensor_{nullptr};
-  // Per-source диагностика (nullptr, если источник не настроен).
+  // Per-source diagnostics (nullptr if the source isn't configured).
   binary_sensor::BinarySensor *hall_calibrated_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *adc_calibrated_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *angle_calibrated_binary_sensor_{nullptr};

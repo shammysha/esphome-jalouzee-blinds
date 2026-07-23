@@ -6,9 +6,9 @@ from esphome.const import CONF_ID
 from esphome.core import CORE
 
 CODEOWNERS = ["@your-github-handle"]
-# 'adc' подключаем автоматически (используется внутри компонента для чтения
-# резистора на оси мотора через штатный ADC-компонент ESPHome, без
-# необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
+# 'adc' is auto-loaded (used internally to read the resistor on the motor
+# shaft via ESPHome's built-in ADC component, without having to declare a
+# separate 'sensor: platform: adc' platform in YAML)
 AUTO_LOAD = [
     "sensor",
     "adc",
@@ -23,7 +23,7 @@ AUTO_LOAD = [
 jalouzee_blinds_ns = cg.esphome_ns.namespace("jalouzee_blinds")
 JalouzeeBlinds = jalouzee_blinds_ns.class_("JalouzeeBlinds", cover.Cover, cg.Component)
 
-# --- ключи конфигурации ---------------------------------------------------
+# --- config keys ------------------------------------------------------------
 CONF_MOTOR = "motor"
 CONF_IN1 = "in1"
 CONF_IN2 = "in2"
@@ -38,11 +38,11 @@ CONF_ANGLE = "angle"
 CONF_POSITION = "position"
 CONF_FAULT_TIMEOUT = "fault_timeout"
 
-# --- варианты режима определения угла (см. select "Angle Source") --------
+# --- angle source mode options (see the "Angle Source" select) -------------
 ANGLE_SOURCE_MODES = {
-    "auto": 0,       # автоматический выбор: 1) angle (MPU6050)  2) Hall/ADC
-    "angle": 1,      # принудительно angle-сенсор (MPU6050)
-    "encoder": 2,    # принудительно Hall-энкодер ИЛИ резистор (что задано в YAML)
+    "auto": 0,       # automatic: 1) angle (MPU6050)  2) Hall/ADC
+    "angle": 1,      # force the angle sensor (MPU6050)
+    "encoder": 2,    # force the Hall encoder OR resistor (whichever is set in YAML)
 }
 
 MOTOR_SCHEMA = cv.Schema(
@@ -60,20 +60,21 @@ def _validate_encoder(config):
 
     if has_a != has_b:
         raise cv.Invalid(
-            "Для датчика Холла нужно указать ОБА пина энкодера: 'a' и 'b'"
+            "Both Hall encoder pins must be set: 'a' and 'b'"
         )
 
     has_hall = has_a and has_b
 
     if has_hall and has_adc:
         raise cv.Invalid(
-            "'a'/'b' (датчик Холла) и 'adc' (резистор на оси мотора) взаимоисключающие "
-            "— укажите только один способ определения угла в блоке 'encoder'"
+            "'a'/'b' (Hall sensor) and 'adc' (resistor on the motor shaft) are "
+            "mutually exclusive — specify only one way to determine the angle "
+            "in the 'encoder' block"
         )
     if not has_hall and not has_adc:
         raise cv.Invalid(
-            "В блоке 'encoder' нужно указать либо 'a' и 'b' (датчик Холла), "
-            "либо 'adc' (резистор на оси мотора)"
+            "The 'encoder' block needs either 'a' and 'b' (Hall sensor), "
+            "or 'adc' (resistor on the motor shaft)"
         )
     return config
 
@@ -83,9 +84,9 @@ ENCODER_SCHEMA = cv.All(
         {
             cv.Optional(CONF_A): pins.internal_gpio_input_pin_schema,
             cv.Optional(CONF_B): pins.internal_gpio_input_pin_schema,
-            # adc.validate_adc_pin (не internal_gpio_input_pin_schema) — проверяет
-            # ADC-совместимость пина под конкретную платформу (например, на ESP8266
-            # это должен быть строго A0/GPIO17).
+            # adc.validate_adc_pin (not internal_gpio_input_pin_schema) — checks
+            # ADC compatibility of the pin for the specific platform (e.g. on
+            # ESP8266 it must be strictly A0/GPIO17).
             cv.Optional(CONF_ADC): adc.validate_adc_pin,
         }
     ),
@@ -96,13 +97,13 @@ ENCODER_SCHEMA = cv.All(
 def _validate_root(config):
     if CONF_ENCODER not in config and CONF_ANGLE not in config:
         raise cv.Invalid(
-            "Нужно указать хотя бы один источник угла наклона: 'encoder' и/или 'angle'"
+            "At least one angle source must be specified: 'encoder' and/or 'angle'"
         )
     mode = config[CONF_POSITION]
     if mode == "angle" and CONF_ANGLE not in config:
-        raise cv.Invalid("position: angle указан, но параметр 'angle' отсутствует")
+        raise cv.Invalid("position: angle is set, but the 'angle' parameter is missing")
     if mode == "encoder" and CONF_ENCODER not in config:
-        raise cv.Invalid("position: encoder указан, но блок 'encoder' отсутствует")
+        raise cv.Invalid("position: encoder is set, but the 'encoder' block is missing")
     return config
 
 
@@ -112,16 +113,17 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.Required(CONF_MOTOR): MOTOR_SCHEMA,
             cv.Optional(CONF_ENCODER): ENCODER_SCHEMA,
-            # id уже существующего sensor (например, из платформы esphome::mpu6050,
-            # конкретная ось акселерометра либо готовый угол, вычисленный отдельным
-            # template sensor). Компонент лишь калибрует диапазон "закрыто..открыто"
-            # по значениям этого сенсора.
+            # id of an existing sensor (e.g. from the esphome::mpu6050 platform,
+            # a specific accelerometer axis, or a ready-made angle computed by a
+            # separate template sensor). The component only calibrates the
+            # "closed..open" range against this sensor's values.
             cv.Optional(CONF_ANGLE): cv.use_id(sensor.Sensor),
             cv.Optional(CONF_POSITION, default="auto"): cv.enum(
                 ANGLE_SOURCE_MODES, lower=True
             ),
-            # период, за который угол должен измениться при движении,
-            # иначе компонент объявит аварию (доступно и в API как number)
+            # how long the angle may stay unchanged while the motor is actively
+            # moving before the component declares a fault (also available via
+            # the API as a number)
             cv.Optional(CONF_FAULT_TIMEOUT, default="10s"): cv.All(
                 cv.positive_time_period_seconds, cv.Range(min=cv.TimePeriod(seconds=1))
             ),
@@ -146,9 +148,10 @@ async def to_code(config):
     CORE.register_platform_component("select", None)
     CORE.register_platform_component("number", None)
     CORE.register_platform_component("text_sensor", None)
-    # 2 базовых ("Откалибровано", "Авария") + per-source диагностика калибровки,
-    # создаваемая только для реально настроенных источников (см. SubEntities::setup):
-    # 1 доп. для encoder (Hall либо ADC — взаимоисключающие) + 1 доп. для angle.
+    # 2 base sensors ("Calibrated", "Fault") + per-source calibration
+    # diagnostics, created only for sources actually configured (see
+    # SubEntities::setup): 1 extra for encoder (Hall or ADC — mutually
+    # exclusive) + 1 extra for angle.
     binary_sensor_count = 2
     if CONF_ENCODER in config:
         binary_sensor_count += 1

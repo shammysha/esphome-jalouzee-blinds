@@ -6,8 +6,8 @@
 namespace esphome {
 namespace jalouzee_blinds {
 
-// Категория "diagnostic" для per-source сенсоров калибровки — см.
-// ENTITY_FIELD_ENTITY_CATEGORY_SHIFT/EntityCategory в esphome/core/entity_base.h.
+// "diagnostic" category for the per-source calibration sensors — see
+// ENTITY_FIELD_ENTITY_CATEGORY_SHIFT/EntityCategory in esphome/core/entity_base.h.
 static const uint32_t DIAGNOSTIC_ENTITY_FIELDS = static_cast<uint32_t>(ENTITY_CATEGORY_DIAGNOSTIC)
                                                   << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
 
@@ -27,18 +27,18 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
 
   this->calibration_button_ = new CalibrationButton();
   this->calibration_button_->set_parent(parent);
-  App.register_button(this->calibration_button_, make_name(base_name + " Калибровка"), 0, 0);
+  App.register_button(this->calibration_button_, make_name(base_name + " Calibration"), 0, 0);
 
   this->cancel_calibration_button_ = new CancelCalibrationButton();
   this->cancel_calibration_button_->set_parent(parent);
-  // Всегда видна в HA — ESPHome не поддерживает динамическое отключение/скрытие
-  // кнопки в рантайме. Нажатие вне калибровки безопасно игнорируется в
-  // on_cancel_calibration_button_pressed().
-  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Отменить калибровку"), 0, 0);
+  // Always visible in HA — ESPHome doesn't support dynamically disabling/
+  // hiding a button at runtime. Pressing it outside calibration is safely
+  // ignored in on_cancel_calibration_button_pressed().
+  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Cancel Calibration"), 0, 0);
 
   this->fault_reset_button_ = new FaultResetButton();
   this->fault_reset_button_->set_parent(parent);
-  App.register_button(this->fault_reset_button_, make_name(base_name + " Сброс аварии"), 0, 0);
+  App.register_button(this->fault_reset_button_, make_name(base_name + " Reset Fault"), 0, 0);
 
   this->angle_source_select_ = new AngleSourceSelect();
   this->angle_source_select_->set_parent(parent);
@@ -50,7 +50,7 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
     if (has_hall || has_adc) options.push_back("encoder");
     this->angle_source_select_->traits.set_options(options);
   }
-  App.register_select(this->angle_source_select_, make_name(base_name + " Источник угла наклона"), 0, 0);
+  App.register_select(this->angle_source_select_, make_name(base_name + " Angle Source"), 0, 0);
   this->angle_source_select_->publish_state(initial_angle_source);
 
   this->fault_timeout_number_ = new FaultTimeoutNumber();
@@ -58,34 +58,35 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
   this->fault_timeout_number_->traits.set_min_value(1);
   this->fault_timeout_number_->traits.set_max_value(300);
   this->fault_timeout_number_->traits.set_step(1);
-  App.register_number(this->fault_timeout_number_, make_name(base_name + " Таймаут аварии (сек)"), 0, 0);
+  App.register_number(this->fault_timeout_number_, make_name(base_name + " Fault Timeout (s)"), 0, 0);
   this->fault_timeout_number_->publish_state(initial_fault_timeout_s);
 
   this->calibration_text_sensor_ = new text_sensor::TextSensor();
-  App.register_text_sensor(this->calibration_text_sensor_, make_name(base_name + " Сообщение калибровки"), 0, 0);
+  App.register_text_sensor(this->calibration_text_sensor_, make_name(base_name + " Calibration Message"), 0, 0);
 
   this->calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name(base_name + " Откалибровано"), 0, 0);
+  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name(base_name + " Calibrated"), 0, 0);
 
   this->fault_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Авария"), 0, 0);
+  App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Fault"), 0, 0);
   this->fault_binary_sensor_->publish_state(false);
 
-  // Диагностика калибровки по каждому НАСТРОЕННОМУ источнику (см. cover.py —
-  // ровно столько же дополнительных binary_sensor учтено в platform_counts).
+  // Calibration diagnostics for each CONFIGURED source (see cover.py — the
+  // same number of extra binary_sensor entries is accounted for in
+  // platform_counts).
   if (has_hall) {
     this->hall_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->hall_calibrated_binary_sensor_, make_name(base_name + " Hall откалиброван"), 0,
+    App.register_binary_sensor(this->hall_calibrated_binary_sensor_, make_name(base_name + " Hall Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
   if (has_adc) {
     this->adc_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->adc_calibrated_binary_sensor_, make_name(base_name + " ADC откалиброван"), 0,
+    App.register_binary_sensor(this->adc_calibrated_binary_sensor_, make_name(base_name + " ADC Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
   if (has_mpu) {
     this->angle_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->angle_calibrated_binary_sensor_, make_name(base_name + " Angle откалиброван"), 0,
+    App.register_binary_sensor(this->angle_calibrated_binary_sensor_, make_name(base_name + " Angle Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
 }

@@ -7,14 +7,15 @@ namespace jalouzee_blinds {
 
 static const char *const TAG = "jalouzee_blinds";
 
-// Минимальная разница |open - closed| для каждого источника, ниже которой калибровка
-// считается невалидной (датчик, скорее всего, не двигался/отключён от ламелей) и
-// НЕ помечается как calibrated — иначе шумный, фактически неподвижный источник может
-// быть ошибочно приоритизирован в режиме auto, а деление на почти нулевой диапазон
-// в raw_to_percent() усилит шум до полного хода жалюзи.
+// Minimum |open - closed| difference for each source, below which the
+// calibration is considered invalid (the sensor most likely didn't move /
+// is physically disconnected from the slats) and is NOT marked as
+// calibrated — otherwise a noisy, effectively stationary source could get
+// wrongly prioritized in auto mode, and dividing by a near-zero range in
+// raw_to_percent() would amplify that noise across the blinds' full travel.
 static const float MPU_MIN_CAL_DELTA = 1.0f;    // m/s²
-static const float HALL_MIN_CAL_DELTA = 10.0f;  // импульсов
-static const float ADC_MIN_CAL_DELTA = 0.1f;    // В
+static const float HALL_MIN_CAL_DELTA = 10.0f;  // pulses
+static const float ADC_MIN_CAL_DELTA = 0.1f;    // V
 
 void Controller::normalize_uncalibrated() {
   if (!this->store_->hall_calibrated) this->store_->hall_closed = this->store_->hall_open = NAN;
@@ -55,10 +56,11 @@ bool Controller::is_source_available_(ActiveAngleSource src) const {
 ActiveAngleSource Controller::resolve_active_source(bool hall_untrusted) const {
   uint8_t mode = this->store_->angle_source_mode;
 
-  // hall_untrusted гасит только Hall — ADC абсолютный (текущее напряжение =
-  // текущее положение прямо сейчас) и в этой защите не нуждается. Проверяем
-  // здесь, а не отдельной веткой по режиму — иначе в auto защита не работала
-  // бы вовсе, раз AUTO использует hall_or_adc_active() как fallback.
+  // hall_untrusted gates only Hall — ADC is absolute (the current voltage
+  // IS the current position right now) and doesn't need this protection.
+  // Checked here rather than in a separate branch per mode — otherwise the
+  // protection wouldn't work at all in auto mode, since AUTO uses
+  // hall_or_adc_active() as a fallback.
   auto hall_or_adc_active = [this, hall_untrusted]() -> ActiveAngleSource {
     if (!hall_untrusted && this->hall_adc_->has_hall() && this->is_source_calibrated_(ACTIVE_SOURCE_HALL))
       return ACTIVE_SOURCE_HALL;
@@ -78,11 +80,11 @@ ActiveAngleSource Controller::resolve_active_source(bool hall_untrusted) const {
   if (mode == ANGLE_SOURCE_ENCODER) {
     ActiveAngleSource enc = hall_or_adc_active();
     if (enc != ACTIVE_SOURCE_NONE) return enc;
-    // п.2: если Hall недостоверен и не осталось ADC — используем MPU как
-    // временный fallback этой сессии, если он доступен.
+    // See point 2: if Hall is untrusted and there's no ADC left — fall back
+    // to MPU for this session, if available.
     return mpu_active();
   }
-  // AUTO: приоритет 1) MPU6050  2) Hall/ADC
+  // AUTO: priority 1) MPU6050  2) Hall/ADC
   ActiveAngleSource m = mpu_active();
   if (m != ACTIVE_SOURCE_NONE) return m;
   return hall_or_adc_active();
@@ -122,11 +124,13 @@ float Controller::raw_to_percent(ActiveAngleSource src, float raw) const {
     default:
       return NAN;
   }
-  // Защита от старых/повреждённых калибровочных данных с почти нулевым диапазоном
-  // (см. HALL/ADC/MPU_MIN_CAL_DELTA) — иначе шум усиливается делением на ~0.
+  // Guards against stale/corrupted calibration data with a near-zero range
+  // (see HALL/ADC/MPU_MIN_CAL_DELTA) — otherwise noise gets amplified by
+  // dividing by ~0.
   if (fabsf(open - closed) < min_delta) return NAN;
-  // формула сама учитывает "зеркальность" установки датчика (п.5):
-  // если open < closed, знаменатель отрицательный — направление инвертируется автоматически.
+  // The formula naturally accounts for sensor mounting "mirroring" (point
+  // 5): if open < closed, the denominator is negative and the direction
+  // inverts automatically.
   float pct = (raw - closed) / (open - closed) * 100.0f;
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
@@ -151,8 +155,8 @@ float Controller::percent_to_raw(ActiveAngleSource src, float percent) const {
     default:
       return NAN;
   }
-  // Некалиброванный источник даёт closed/open == NAN, что естественным образом
-  // распространяется на результат — вызывающий должен проверять calibrated сам.
+  // An uncalibrated source gives closed/open == NAN, which naturally
+  // propagates to the result — the caller must check calibrated itself.
   return closed + (percent / 100.0f) * (open - closed);
 }
 
@@ -164,20 +168,20 @@ bool Controller::try_finish_calibration(ActiveAngleSource src, float closed, flo
     case ACTIVE_SOURCE_HALL:
       min_delta = HALL_MIN_CAL_DELTA;
       accepted = delta >= min_delta;
-      if (!accepted) ESP_LOGW(TAG, "Калибровка Hall отклонена: движение не обнаружено (разница %.1f имп.)", delta);
+      if (!accepted) ESP_LOGW(TAG, "Hall calibration rejected: no movement detected (delta %.1f pulses)", delta);
       break;
     case ACTIVE_SOURCE_ADC:
       min_delta = ADC_MIN_CAL_DELTA;
       accepted = delta >= min_delta;
-      if (!accepted) ESP_LOGW(TAG, "Калибровка ADC отклонена: движение не обнаружено (разница %.3f В)", delta);
+      if (!accepted) ESP_LOGW(TAG, "ADC calibration rejected: no movement detected (delta %.3f V)", delta);
       break;
     case ACTIVE_SOURCE_MPU6050:
       min_delta = MPU_MIN_CAL_DELTA;
       accepted = delta >= min_delta;
       if (!accepted)
         ESP_LOGW(TAG,
-                 "Калибровка MPU6050 отклонена: движение не обнаружено (разница %.3f м/с² — "
-                 "датчик, вероятно, отключён от ламелей)",
+                 "MPU6050 calibration rejected: no movement detected (delta %.3f m/s² — "
+                 "the sensor is probably disconnected from the slats)",
                  delta);
       break;
     default:
@@ -225,9 +229,9 @@ bool Controller::try_auto_calibrate_at_endpoint(bool is_closed_point) {
 }
 
 bool Controller::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_point, float raw) {
-  // Работаем через локальные копии, а не указатели на поля store_ — она
-  // __attribute__((packed)), и &store_->hall_closed и т.п. дают предупреждение
-  // компилятора о невыровненном указателе (-Waddress-of-packed-member).
+  // Work through local copies rather than pointers into store_'s fields — it
+  // is __attribute__((packed)), and &store_->hall_closed etc. trigger a
+  // compiler warning about an unaligned pointer (-Waddress-of-packed-member).
   float closed = NAN, open = NAN, min_delta = 0;
   const char *name = "";
   switch (src) {
@@ -282,7 +286,7 @@ bool Controller::auto_calibrate_capture_(ActiveAngleSource src, bool is_closed_p
   }
 
   if (now_calibrated) {
-    ESP_LOGI(TAG, "Автокалибровка %s завершена по опорным точкам активного источника", name);
+    ESP_LOGI(TAG, "%s auto-calibration completed from reference points of the active source", name);
   }
   return now_calibrated;
 }

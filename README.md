@@ -1,50 +1,55 @@
-# jalouzee_blinds — внешний компонент ESPHome
+[Русская версия](README.ru.md)
 
-Компонент реализует платформу `cover` для управления углом наклона ламелей
-жалюзи мотором постоянного тока с автоматическим определением текущего угла
-по одному из трёх источников: **MPU6050** (акселерометр), **датчик Холла**
-(энкодер на валу мотора) или **резистор (потенциометр)** на выходном валу
-редуктора.
+# jalouzee_blinds — an ESPHome external component
 
-Поддерживаемые платформы: **ESP32** и **ESP8266**.
+The component implements a `cover` platform for controlling the tilt angle
+of venetian blind slats with a DC motor, with automatic detection of the
+current angle from one of three sources: **MPU6050** (accelerometer), a
+**Hall sensor** (encoder on the motor shaft), or a **resistor
+(potentiometer)** on the gearbox's output shaft.
 
-## Что нужно
+Supported platforms: **ESP32** and **ESP8266**.
 
-- ESP32 или ESP8266.
-- Любой DC-моторчик с редуктором и H-мост/драйвер на 2 цифровых пина (полная
-  скорость, без ШИМ) — конкретная модель мотора не важна, компонент не
-  привязан к какому-то одному. В примерах ниже фигурирует GA12-N20 просто как
-  распространённый и дешёвый вариант, но подойдёт практически любой
-  мотор-редуктор с драйвером на 2 пина.
-- Один из источников угла наклона (можно и несколько сразу):
-  - **MPU6050** по I2C — используется как готовый `sensor` (конкретная ось
-    акселерометра или свой шаблонный сенсор с уже вычисленным углом);
-  - **датчик Холла** на валу мотора — 2 цифровых пина (A/B). Обычно идёт уже
-    встроенным в моторчик (например, GA12-N20 в исполнении "с энкодером");
-  - **резистор (потенциометр)** на выходном валу редуктора (между мотором и
-    муфтой, которая крепит поворотную штангу жалюзи) — 1 ADC-пин. Полный ход
-    "закрыто↔открыто" на этом валу укладывается меньше чем в один оборот, так
-    что подходит обычный однооборотный потенциометр с механическим упором.
+## What you need
 
-  Датчик Холла и резистор — взаимоисключающие варианты одного и того же
-  "энкодерного" способа измерения (нельзя указать оба одновременно), MPU6050
-  можно использовать вместе с любым из них как резервный/основной источник.
+- ESP32 or ESP8266.
+- Any DC motor with a gearbox and an H-bridge/driver on 2 digital pins (full
+  speed, no PWM) — the specific motor model doesn't matter, the component
+  isn't tied to any one of them. The examples below use the GA12-N20 simply
+  as a common, cheap option, but pretty much any gearmotor with a 2-pin
+  driver will work.
+- One angle source (you can use several at once):
+  - **MPU6050** over I2C — used as a ready-made `sensor` (a specific
+    accelerometer axis, or your own template sensor with an already-computed
+    angle);
+  - a **Hall sensor** on the motor shaft — 2 digital pins (A/B). Usually
+    comes built into the motor (e.g. the GA12-N20 in its "with encoder"
+    variant);
+  - a **resistor (potentiometer)** on the gearbox's output shaft (between
+    the motor and the coupling that holds the blinds' tilt rod) — 1 ADC pin.
+    The full "closed↔open" travel on this shaft is less than one full turn,
+    so a regular single-turn potentiometer with a mechanical stop works
+    fine.
 
-### Примеры используемого железа
+  The Hall sensor and the resistor are mutually exclusive variants of the
+  same "encoder" measurement approach (you can't specify both at once);
+  MPU6050 can be used alongside either of them as a backup/primary source.
 
-| Источник | Пример |
+### Hardware examples
+
+| Source | Example |
 |---|---|
-| MPU6050 (готовый модуль GY-521) | ![MPU6050](pics/mpu6050.png?raw=true) |
-| GA12-N20 со встроенным датчиком Холла | ![GA12-N20](pics/ga12-n20-hall.png?raw=true) | 
-| GA12-N20 без датчика Холла + потенциометр на выходном валу | ![GA12-N20](pics/ga12-n20-potentiometer.png?raw=true) | 
+| MPU6050 (ready-made GY-521 module) | ![MPU6050](pics/mpu6050.png?raw=true) |
+| GA12-N20 with a built-in Hall sensor | ![GA12-N20](pics/ga12-n20-hall.png?raw=true) |
+| GA12-N20 without a Hall sensor + potentiometer on the output shaft | ![GA12-N20](pics/ga12-n20-potentiometer.png?raw=true) |
 
-## Установка
+## Installation
 
-Скопируйте папку `components/jalouzee_blinds` в `external_components` вашего
-проекта ESPHome (см. `example/example.yaml`), либо подключите репозиторий
-напрямую через `external_components: - source: github://...`.
+Copy the `components/jalouzee_blinds` folder into your ESPHome project's
+`external_components` (see `example/example.yaml`), or reference the
+repository directly via `external_components: - source: github://...`.
 
-## Пример конфигурации
+## Example configuration
 
 ```yaml
 esp32:
@@ -73,183 +78,183 @@ sensor:
 cover:
   - platform: jalouzee_blinds
     id: blinds
-    name: "Жалюзи гостиная"
+    name: "Living Room Blinds"
     motor:
       in1: GPIO25
       in2: GPIO26
     encoder:
-      # ВАРИАНТ 1: датчик Холла на валу мотора
+      # OPTION 1: Hall sensor on the motor shaft
       a: GPIO32
       b: GPIO33
-      # ВАРИАНТ 2 (взаимоисключающий с a/b): резистор на оси мотора
+      # OPTION 2 (mutually exclusive with a/b): resistor on the motor shaft
       # adc: GPIO34
     angle: acc_x
     position: auto   # auto | angle | encoder
     fault_timeout: 10s
 ```
 
-## Параметры конфигурации
+## Configuration parameters
 
-| Параметр | Обязательный | Описание |
+| Parameter | Required | Description |
 |---|---|---|
-| `motor.in1`, `motor.in2` | да | два цифровых выходных пина на драйвер мотора |
-| `encoder.a`, `encoder.b` | нет* | пины датчика Холла (оба сразу) |
-| `encoder.adc` | нет* | ADC-пин резистора (взаимоисключающе с `a`/`b`). Допустимые пины зависят от платформы (например, на ESP8266 это может быть только `A0`/`GPIO17`) — при неверном пине ошибка покажется уже при компиляции |
-| `angle` | нет* | id уже настроенного `sensor` (ось акселерометра MPU6050 или готовый угол, вычисленный отдельным сенсором) |
-| `position` | нет, по умолчанию `auto` | `auto` / `angle` / `encoder` — какой источник использовать (см. раздел "Приоритет источников" ниже) |
-| `fault_timeout` | нет, по умолчанию `10s` | сколько секунд угол может не меняться при активном движении мотора, прежде чем объявляется авария (от 1с до 300с) |
+| `motor.in1`, `motor.in2` | yes | two digital output pins to the motor driver |
+| `encoder.a`, `encoder.b` | no* | Hall sensor pins (both together) |
+| `encoder.adc` | no* | ADC pin of the resistor (mutually exclusive with `a`/`b`). Valid pins depend on the platform (e.g. on ESP8266 it may only be `A0`/`GPIO17`) — an invalid pin will already error out at compile time |
+| `angle` | no* | id of an already-configured `sensor` (an MPU6050 accelerometer axis, or a ready-made angle computed by a separate sensor) |
+| `position` | no, defaults to `auto` | `auto` / `angle` / `encoder` — which source to use (see "Angle source priority" below) |
+| `fault_timeout` | no, defaults to `10s` | how many seconds the angle may stay unchanged while the motor is actively moving before a fault is declared (1s to 300s) |
 
-\* нужно указать блок `encoder:` и/или параметр `angle:` — хотя бы один
-источник угла обязателен.
+\* you need to specify the `encoder:` block and/or the `angle:` parameter —
+at least one angle source is required.
 
-## Автоматически создаваемые сущности
+## Automatically created entities
 
-Ничего из этого не нужно (и нельзя) прописывать в YAML — сущности создаются
-компонентом сами при старте:
+None of these need to be (or can be) declared in YAML — the component
+creates them itself on startup:
 
-| Сущность | Тип | Назначение |
+| Entity | Type | Purpose |
 |---|---|---|
-| `<name> Калибровка` | button | шаги калибровки — см. ниже |
-| `<name> Отменить калибровку` | button | отменяет калибровку, если она сейчас идёт |
-| `<name> Сброс аварии` | button | сбрасывает состояние аварии |
-| `<name> Источник угла наклона` | select | `auto` / `angle` / `encoder` — то же, что `position` в YAML, но можно менять на лету |
-| `<name> Таймаут аварии (сек)` | number | то же, что `fault_timeout`, редактируется на лету (1–300) |
-| `<name> Сообщение калибровки` | text_sensor | текстовая подсказка на каждом шаге калибровки |
-| `<name> Откалибровано` | binary_sensor | включён, если откалиброван хотя бы один источник |
-| `<name> Авария` | binary_sensor | включён, пока активна авария (см. "Таймаут аварии" выше) |
+| `<name> Calibration` | button | calibration steps — see below |
+| `<name> Cancel Calibration` | button | cancels calibration if it's currently running |
+| `<name> Reset Fault` | button | clears the fault state |
+| `<name> Angle Source` | select | `auto` / `angle` / `encoder` — same as `position` in YAML, but changeable on the fly |
+| `<name> Fault Timeout (s)` | number | same as `fault_timeout`, editable on the fly (1–300) |
+| `<name> Calibration Message` | text_sensor | a text hint for each calibration step |
+| `<name> Calibrated` | binary_sensor | on if at least one source is calibrated |
+| `<name> Fault` | binary_sensor | on while a fault is active (see "Fault Timeout" above) |
+| `<name> Hall Calibrated` | binary_sensor (diagnostic) | only if `encoder.a`/`b` is configured — calibration status of that specific source |
+| `<name> ADC Calibrated` | binary_sensor (diagnostic) | only if `encoder.adc` is configured — calibration status of that specific source |
+| `<name> Angle Calibrated` | binary_sensor (diagnostic) | only if `angle` is configured — calibration status of that specific source |
 
-## Как откалибровать
+## How to calibrate
 
-1. Нажмите кнопку **«Калибровка»**.
-2. Обычными стрелками ▲/▼ карточки cover в Home Assistant подведите ламели в
-   крайнее **закрытое** положение (перелёт и коррекция кнопкой в другую
-   сторону — это нормально, важна только точка на момент следующего
-   нажатия). Нажмите **«Калибровка»** ещё раз.
-3. Аналогично подведите ламели в крайнее **открытое** положение и снова
-   нажмите **«Калибровка»**.
-4. Калибровка завершена. Сенсор «Сообщение калибровки» покажет
-   подтверждение на несколько секунд.
+1. Press the **"Calibration"** button.
+2. Using the regular ▲/▼ arrows on the cover card in Home Assistant, move
+   the slats to the fully **closed** position (overshooting and correcting
+   with the other arrow is fine — only the point at the moment of the next
+   press matters). Press **"Calibration"** again.
+3. Likewise, move the slats to the fully **open** position and press
+   **"Calibration"** again.
+4. Calibration is complete. The "Calibration Message" sensor will show a
+   confirmation for a few seconds.
 
-В любой момент калибровку можно прервать кнопкой **«Отменить калибровку»**
-— управление жалюзи вернётся в обычный режим без изменений.
+Calibration can be interrupted at any time with the **"Cancel Calibration"**
+button — blind control returns to normal mode without any changes.
 
-Калибровка одновременно фиксирует точки **для всех подключённых
-источников** — то есть, если у вас настроены и Холл, и MPU6050, один проход
-калибрует оба сразу.
+Calibration captures points for **all connected sources** at once — i.e. if
+you have both Hall and MPU6050 configured, a single pass calibrates both.
 
-## Управление
+## Control
 
-- Обычные open/close (стрелки в HA без слайдера) двигают жалюзи по трём
-  фиксированным положениям: **Закрыто → 50% → Открыто** (и обратно), по шагу
-  за нажатие.
-- Слайдер/произвольная позиция двигает жалюзи напрямую в указанный процент.
-- Кнопка Stop останавливает движение немедленно.
+- Regular open/close (arrows in HA, no slider) move the blinds through
+  three fixed positions: **Closed → 50% → Open** (and back), one step per
+  press.
+- The slider/an arbitrary position moves the blinds directly to the given
+  percentage.
+- The Stop button halts movement immediately.
 
 ---
 
-## Тонкости логики работы
+## Behavior details
 
-### Приоритет источников угла (режим `auto`)
+### Angle source priority (`auto` mode)
 
-1. **`angle`** (например, MPU6050) — если настроен, откалиброван и от него
-   уже есть свежие показания.
-2. Иначе — **датчик Холла или резистор** (что настроено в `encoder:`), если
-   откалиброван.
+1. **`angle`** (e.g. MPU6050) — if configured, calibrated, and has fresh
+   readings.
+2. Otherwise — the **Hall sensor or resistor** (whichever is set in
+   `encoder:`), if calibrated.
 
-Если ни один источник не откалиброван и не доступен — управление жалюзи
-блокируется полностью (кнопки и слайдер не действуют, стрелки в HA
-показываются, но команда отклоняется), пока не будет выполнена калибровка.
+If no source is calibrated and available — blind control is fully blocked
+(buttons and the slider don't work; the arrows are shown in HA, but the
+command is rejected) until calibration is performed.
 
-Режимы `angle` и `encoder` принудительно используют только
-соответствующий источник (без автоматического переключения на второй, кроме
-случая, описанного ниже в "Потеря питания").
+The `angle` and `encoder` modes force the use of only that specific source
+(no automatic fallback to the other one, except for the case described
+below under "Power loss behavior").
 
-### Когда калибровка источника принимается, а когда — нет
+### When a source's calibration is accepted, and when it isn't
 
-При фиксации точек калибровки для каждого источника отдельно проверяется,
-что между "закрыто" и "открыто" было зафиксировано **реальное движение**
-(достаточно большая разница сырых показаний). Если для конкретного источника
-разница слишком мала — скорее всего, датчик не двигался или физически
-отключён — этот источник остаётся **не откалиброванным**, даже если
-остальные источники откалибровались успешно. Ничего дополнительно нажимать
-не нужно: просто по этому источнику калибровка не засчитается, и он не
-будет использоваться, пока не будет откалиброван правильно.
+When capturing calibration points, each source is checked separately for
+**actual movement** between "closed" and "open" (a sufficiently large
+difference in raw readings). If the difference is too small for a specific
+source — the sensor most likely didn't move, or is physically disconnected
+— that source remains **uncalibrated**, even if the other sources
+calibrated successfully. Nothing extra needs to be pressed: that source's
+calibration simply won't be accepted, and it won't be used until it's
+calibrated correctly.
 
-### Автоматическая докалибровка
+### Automatic re-calibration
 
-Если во время обычной (не калибровочной) работы жалюзи реально доезжают до
-0% или 100% по уже доверенному источнику, компонент "по пути" ловит текущее
-сырое значение любого **другого доступного, но ещё не откалиброванного**
-источника. Как только для него накопятся обе крайние точки — он
-автоматически становится откалиброванным, без повторного ручного прохода
-калибровки.
+If, during normal (non-calibration) operation, the blinds actually reach 0%
+or 100% per an already-trusted source, the component opportunistically
+captures the current raw value of any **other available but not-yet-
+calibrated** source. As soon as both endpoints have accumulated for it, it
+automatically becomes calibrated, without a repeat manual calibration pass.
 
-Практический пример: если во время калибровки MPU6050 был физически
-отключён от ламелей (и поэтому не откалибровался — см. пункт выше), после
-того как его вернут на место, достаточно пары обычных циклов
-открыть/закрыть — и он самостоятельно докалибруется.
+Practical example: if the MPU6050 was physically disconnected from the
+slats during calibration (and therefore didn't calibrate — see the point
+above), once it's reconnected, a couple of regular open/close cycles are
+enough for it to calibrate itself.
 
-### Поведение при потере питания
+### Power loss behavior
 
-Компонент точно отслеживает, было ли движение мотора прервано отключением
-питания (в отличие от штатной остановки — по достижении цели, кнопкой Stop,
-аварией или входом в калибровку).
+The component precisely tracks whether motor movement was interrupted by a
+power loss (as opposed to a normal stop — reaching the target, the Stop
+button, a fault, or entering calibration).
 
-- Если движение было **прервано** потерей питания и в качестве источника
-  используется **датчик Холла** — его текущая позиция считается
-  недостоверной (энкодер накопительный, а не абсолютный, и не может сам
-  подтвердить, что ничего не изменилось, пока не было питания). В этом
-  случае:
-  - если доступен и откалиброван **MPU6050** — компонент временно (на эту
-    сессию, без изменения сохранённых настроек) переключается на него;
-  - иначе — управление жалюзи **блокируется** до ручной калибровки.
-- Если движение не было прервано (чистая перезагрузка) — позиция Холла
-  восстанавливается из последнего сохранённого значения, и ничего
-  дополнительно делать не нужно.
-- **Резистор (ADC)** от этой защиты не зависит вообще — это абсолютный
-  датчик (текущее напряжение = текущее положение прямо сейчас), поэтому он
-  всегда доверенный сразу после включения, независимо от того, было ли
-  движение прервано.
+- If movement was **interrupted** by a power loss and the **Hall sensor**
+  is in use as the source — its current position is considered
+  untrustworthy (the encoder is cumulative, not absolute, and can't confirm
+  on its own that nothing changed while power was off). In this case:
+  - if **MPU6050** is available and calibrated — the component temporarily
+    (for this session, without changing saved settings) switches to it;
+  - otherwise — blind control is **blocked** until manual calibration.
+- If movement wasn't interrupted (a clean reboot) — the Hall position is
+  restored from the last saved value, and nothing else needs to be done.
+- The **resistor (ADC)** doesn't depend on this protection at all — it's an
+  absolute sensor (the current voltage IS the current position right now),
+  so it's always trusted right after power-up, regardless of whether
+  movement was interrupted.
 
-### Авария (датчик "завис")
+### Fault ("stuck" sensor)
 
-Пока мотор активно едет к цели, компонент следит, чтобы измеряемый угол
-реально менялся. Если угол не меняется дольше `fault_timeout` секунд —
-это считается аварией: мотор останавливается, включается бинарный сенсор
-«Авария», и дальнейшее управление жалюзи блокируется до нажатия кнопки
-«Сброс аварии».
+While the motor is actively moving toward a target, the component checks
+that the measured angle is actually changing. If the angle doesn't change
+for longer than `fault_timeout` seconds — this is treated as a fault: the
+motor stops, the "Fault" binary sensor turns on, and further blind control
+is blocked until the "Reset Fault" button is pressed.
 
-Эта защита **не действует во время калибровки** — там движение вручную
-контролируется пользователем через кнопки джога.
+This protection **doesn't apply during calibration** — movement there is
+manually controlled by the user via the jog buttons.
 
-### Три фиксированных положения
+### Three fixed positions
 
-Обычные стрелки открыть/закрыть (без слайдера) всегда двигают жалюзи по
-шагам между тремя положениями — 0% / 50% / 100%, по одному шагу за
-нажатие, независимо от того, где жалюзи находятся в данный момент между
-шагами. Прямая установка произвольного процента (слайдером) двигает жалюзи
-сразу в указанную точку и соответствующим образом обновляет "текущий шаг"
-для последующих нажатий стрелок.
+The regular open/close arrows (without a slider) always move the blinds in
+steps between three positions — 0% / 50% / 100%, one step per press,
+regardless of where the blinds currently are between steps. Directly
+setting an arbitrary percentage (via the slider) moves the blinds straight
+to that point and updates the "current step" accordingly for subsequent
+arrow presses.
 
-### Что и как сохраняется
+### What gets saved, and how
 
-Во flash сохраняются: калибровочные данные каждого источника, выбранный
-режим определения угла и последняя известная позиция. Статус аварии
-**намеренно не сохраняется** — после перезагрузки авария всегда снята.
+Flash stores: each source's calibration data, the selected angle-source
+mode, and the last known position. Fault status is **intentionally not
+saved** — after a reboot, a fault is always cleared.
 
-Позиция сохраняется сразу по достижении цели движения, а также не чаще
-одного раза в 5 минут во время простоя (если она успела заметно
-измениться) — специально нечасто, поскольку в этом проекте не
-предполагается ручное вмешательство в положение ламелей помимо команд
-самого компонента.
+The position is saved immediately upon reaching a movement target, and no
+more than once every 5 minutes while idle (if it has changed noticeably) —
+deliberately infrequent, since this project doesn't assume manual
+intervention with the slat position outside of the component's own
+commands.
 
-### Публикация позиции в Home Assistant
+### Publishing position to Home Assistant
 
-Во время движения обновление позиции в интерфейсе идёт не чаще раза в
-секунду (финальное значение по остановке публикуется сразу, без задержки)
-— это защищает от перегрузки соединения с Home Assistant при частых
-обновлениях и не влияет на точность самого управления.
+During movement, the position update in the UI happens no more than once a
+second (the final value is published immediately upon stopping, with no
+delay) — this protects against overloading the Home Assistant connection
+with frequent updates and doesn't affect control accuracy itself.
 
-Во время калибровки в интерфейсе принудительно показывается 50% (чтобы
-обе стрелки ▲/▼ оставались активны для джога) — реальная позиция
-возвращается сразу по завершении или отмене калибровки.
+During calibration, the UI forcibly shows 50% (so both ▲/▼ arrows stay
+active for jogging) — the real position is restored immediately once
+calibration finishes or is cancelled.
