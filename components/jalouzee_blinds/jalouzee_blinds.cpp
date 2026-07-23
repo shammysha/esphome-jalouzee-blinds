@@ -91,7 +91,7 @@ void JalouzeeBlinds::setup() {
 
   {
     const char *initial_mode = "auto";
-    if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) initial_mode = "mpu6050";
+    if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) initial_mode = "angle";
     else if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) initial_mode = "encoder";
     this->sub_entities_.setup(this, this->get_name(), this->hall_adc_.has_hall(), this->hall_adc_.has_adc(),
                                this->mpu_.has_mpu(), initial_mode, this->fault_timeout_s_);
@@ -322,7 +322,7 @@ void JalouzeeBlinds::clear_fault_() {
 // =====================================================================
 void JalouzeeBlinds::on_angle_source_select_changed(const std::string &value) {
   uint8_t mode = ANGLE_SOURCE_AUTO;
-  if (value == "mpu6050") mode = ANGLE_SOURCE_MPU6050;
+  if (value == "angle") mode = ANGLE_SOURCE_MPU6050;
   else if (value == "encoder") mode = ANGLE_SOURCE_ENCODER;
 
   this->angle_cal_.set_mode(mode);

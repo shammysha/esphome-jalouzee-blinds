@@ -33,16 +33,15 @@ CONF_A = "a"
 CONF_B = "b"
 CONF_ADC = "adc"
 
-CONF_MPU6050 = "mpu6050"
-CONF_ANGLE_SENSOR = "angle_sensor"
+CONF_ANGLE = "angle"
 
-CONF_ANGLE_SOURCE = "angle_source"
+CONF_POSITION = "position"
 CONF_FAULT_TIMEOUT = "fault_timeout"
 
 # --- варианты режима определения угла (см. select "Angle Source") --------
 ANGLE_SOURCE_MODES = {
-    "auto": 0,       # автоматический выбор: 1) MPU6050  2) Hall/ADC
-    "mpu6050": 1,    # принудительно MPU6050
+    "auto": 0,       # автоматический выбор: 1) angle (MPU6050)  2) Hall/ADC
+    "angle": 1,      # принудительно angle-сенсор (MPU6050)
     "encoder": 2,    # принудительно Hall-энкодер ИЛИ резистор (что задано в YAML)
 }
 
@@ -93,27 +92,17 @@ ENCODER_SCHEMA = cv.All(
     _validate_encoder,
 )
 
-MPU6050_SCHEMA = cv.Schema(
-    {
-        # angle_sensor — id уже существующего sensor (например, из платформы
-        # esphome::mpu6050, конкретная ось акселерометра либо готовый угол,
-        # вычисленный отдельным template sensor). Компонент лишь калибрует
-        # диапазон "закрыто..открыто" по значениям этого сенсора.
-        cv.Required(CONF_ANGLE_SENSOR): cv.use_id(sensor.Sensor),
-    }
-)
-
 
 def _validate_root(config):
-    if CONF_ENCODER not in config and CONF_MPU6050 not in config:
+    if CONF_ENCODER not in config and CONF_ANGLE not in config:
         raise cv.Invalid(
-            "Нужно указать хотя бы один источник угла наклона: 'encoder' и/или 'mpu6050'"
+            "Нужно указать хотя бы один источник угла наклона: 'encoder' и/или 'angle'"
         )
-    mode = config[CONF_ANGLE_SOURCE]
-    if mode == "mpu6050" and CONF_MPU6050 not in config:
-        raise cv.Invalid("angle_source: mpu6050 указан, но блок 'mpu6050' отсутствует")
+    mode = config[CONF_POSITION]
+    if mode == "angle" and CONF_ANGLE not in config:
+        raise cv.Invalid("position: angle указан, но параметр 'angle' отсутствует")
     if mode == "encoder" and CONF_ENCODER not in config:
-        raise cv.Invalid("angle_source: encoder указан, но блок 'encoder' отсутствует")
+        raise cv.Invalid("position: encoder указан, но блок 'encoder' отсутствует")
     return config
 
 
@@ -123,8 +112,12 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.Required(CONF_MOTOR): MOTOR_SCHEMA,
             cv.Optional(CONF_ENCODER): ENCODER_SCHEMA,
-            cv.Optional(CONF_MPU6050): MPU6050_SCHEMA,
-            cv.Optional(CONF_ANGLE_SOURCE, default="auto"): cv.enum(
+            # id уже существующего sensor (например, из платформы esphome::mpu6050,
+            # конкретная ось акселерометра либо готовый угол, вычисленный отдельным
+            # template sensor). Компонент лишь калибрует диапазон "закрыто..открыто"
+            # по значениям этого сенсора.
+            cv.Optional(CONF_ANGLE): cv.use_id(sensor.Sensor),
+            cv.Optional(CONF_POSITION, default="auto"): cv.enum(
                 ANGLE_SOURCE_MODES, lower=True
             ),
             # период, за который угол должен измениться при движении,
@@ -174,9 +167,9 @@ async def to_code(config):
             adc_pin = await cg.gpio_pin_expression(enc[CONF_ADC])
             cg.add(var.set_adc_pin(adc_pin))
 
-    if CONF_MPU6050 in config:
-        mpu_sens = await cg.get_variable(config[CONF_MPU6050][CONF_ANGLE_SENSOR])
+    if CONF_ANGLE in config:
+        mpu_sens = await cg.get_variable(config[CONF_ANGLE])
         cg.add(var.set_mpu6050_sensor(mpu_sens))
 
-    cg.add(var.set_angle_source_mode(ANGLE_SOURCE_MODES[config[CONF_ANGLE_SOURCE]]))
+    cg.add(var.set_angle_source_mode(ANGLE_SOURCE_MODES[config[CONF_POSITION]]))
     cg.add(var.set_fault_timeout(config[CONF_FAULT_TIMEOUT]))

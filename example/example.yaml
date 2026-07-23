@@ -60,7 +60,6 @@ cover:
       b: GPIO33
       # ВАРИАНТ 2 (закомментирован, взаимоисключающий с a/b):
       # adc: GPIO34
-    mpu6050:
-      angle_sensor: acc_x
-    angle_source: auto   # auto | mpu6050 | encoder
+    angle: acc_x
+    position: auto   # auto | angle | encoder
     fault_timeout: 10s

@@ -24,7 +24,7 @@ struct JalouzeeBlindsStore {
   float mpu_closed;  // значение sensor'а MPU6050 при закрытых ламелях
   float mpu_open;
 
-  uint8_t angle_source_mode;  // выбор пользователя: auto/mpu6050/encoder
+  uint8_t angle_source_mode;  // выбор пользователя: auto/angle/encoder
   float last_angle_percent;   // последний известный угол наклона, 0..100%
 } __attribute__((packed));
 

@@ -41,7 +41,7 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
     FixedVector<const char *> options;
     options.init(3);
     options.push_back("auto");
-    if (has_mpu) options.push_back("mpu6050");
+    if (has_mpu) options.push_back("angle");
     if (has_hall || has_adc) options.push_back("encoder");
     this->angle_source_select_->traits.set_options(options);
   }
