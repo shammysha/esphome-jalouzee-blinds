@@ -11,6 +11,11 @@ struct JalouzeeBlindsStore {
   bool hall_calibrated;
   bool adc_calibrated;
   bool mpu_calibrated;
+  // true между началом реального движения мотора и его штатным завершением
+  // (достижение цели / явный stop / авария / вход в калибровку) — если при
+  // следующей загрузке этот флаг всё ещё true, значит движение было прервано
+  // потерей питания, и позиции Hall доверять нельзя (см. JalouzeeBlinds::setup()).
+  bool movement_in_progress;
 
   float hall_closed;  // "сырое" значение накопленных импульсов при закрытых ламелях
   float hall_open;

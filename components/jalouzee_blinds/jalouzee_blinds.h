@@ -74,6 +74,11 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   // --- flash ---
   void save_to_flash_();
   void load_from_flash_();
+  // Сбрасывает store_.movement_in_progress (если он был true) и сохраняет —
+  // вызывать при ЛЮБОМ штатном завершении движения (явный stop, авария, вход
+  // в калибровку), кроме "достигли цели" в handle_movement_(), которая уже и
+  // так безусловно пишет flash. См. store.h.
+  void clear_movement_in_progress_();
 
   // ------------------------- компоненты -------------------------
   MotorController motor_;

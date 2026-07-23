@@ -52,11 +52,16 @@ bool Controller::is_source_available_(ActiveAngleSource src) const {
   }
 }
 
-ActiveAngleSource Controller::resolve_active_source(bool operation_blocked) const {
+ActiveAngleSource Controller::resolve_active_source(bool hall_untrusted) const {
   uint8_t mode = this->store_->angle_source_mode;
 
-  auto hall_or_adc_active = [this]() -> ActiveAngleSource {
-    if (this->hall_adc_->has_hall() && this->is_source_calibrated_(ACTIVE_SOURCE_HALL)) return ACTIVE_SOURCE_HALL;
+  // hall_untrusted гасит только Hall — ADC абсолютный (текущее напряжение =
+  // текущее положение прямо сейчас) и в этой защите не нуждается. Проверяем
+  // здесь, а не отдельной веткой по режиму — иначе в auto защита не работала
+  // бы вовсе, раз AUTO использует hall_or_adc_active() как fallback.
+  auto hall_or_adc_active = [this, hall_untrusted]() -> ActiveAngleSource {
+    if (!hall_untrusted && this->hall_adc_->has_hall() && this->is_source_calibrated_(ACTIVE_SOURCE_HALL))
+      return ACTIVE_SOURCE_HALL;
     if (this->hall_adc_->has_adc() && this->is_source_calibrated_(ACTIVE_SOURCE_ADC)) return ACTIVE_SOURCE_ADC;
     return ACTIVE_SOURCE_NONE;
   };
@@ -71,11 +76,10 @@ ActiveAngleSource Controller::resolve_active_source(bool operation_blocked) cons
     return mpu_active();
   }
   if (mode == ANGLE_SOURCE_ENCODER) {
-    // п.2: если после потери питания энкодер ещё не переподтверждён —
-    // используем MPU как временный fallback этой сессии, если он доступен.
-    if (operation_blocked) return ACTIVE_SOURCE_NONE;
     ActiveAngleSource enc = hall_or_adc_active();
     if (enc != ACTIVE_SOURCE_NONE) return enc;
+    // п.2: если Hall недостоверен и не осталось ADC — используем MPU как
+    // временный fallback этой сессии, если он доступен.
     return mpu_active();
   }
   // AUTO: приоритет 1) MPU6050  2) Hall/ADC

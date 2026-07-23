@@ -50,10 +50,13 @@ class Controller {
 
   bool is_any_calibrated() const;
 
-  // operation_blocked — состояние "после потери питания энкодер ещё не
-  // переподтверждён" (см. jalouzee_blinds.cpp::setup()), общая логика, не
-  // калибровочные данные как таковые — поэтому передаётся параметром.
-  ActiveAngleSource resolve_active_source(bool operation_blocked) const;
+  // hall_untrusted — Hall-энкодер не считается надёжным в этой сессии (обычно
+  // из-за обнаруженного прерванного питанием движения, см.
+  // JalouzeeBlinds::setup()) — общая логика, не калибровочные данные как
+  // таковые, поэтому передаётся параметром. Гасит ТОЛЬКО ветку Hall (ADC —
+  // абсолютный датчик, в этой защите не нуждается) и работает одинаково в
+  // любом режиме (auto/encoder).
+  ActiveAngleSource resolve_active_source(bool hall_untrusted) const;
   float read_raw(ActiveAngleSource src) const;
   float raw_to_percent(ActiveAngleSource src, float raw) const;
   // Обратное преобразование raw_to_percent — по калибровочным точкам источника

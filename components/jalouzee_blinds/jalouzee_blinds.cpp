@@ -18,11 +18,10 @@ static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — минимально�
 static const float STEP_TARGET_EPSILON = 0.5f;    // % — попадание в целевую позицию
 // В простое пишем редко — ручного управления в проекте не предполагается, риск
 // расхождения позиции копится только между визитами, а не посреди хода.
+// Защита от обрыва питания ПОСРЕДИ хода реализована отдельно и точно — через
+// store_.movement_in_progress (см. start_move_to_percent_/setup()), а не через
+// учащённую запись позиции по таймеру.
 static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 300000;  // 5 мин
-// Во время движения пишем значительно чаще — минимизирует расхождение
-// сохранённой позиции с реальной при обрыве питания посреди хода (движения
-// короткие и нечастые, поэтому износ flash от этого не растёт заметно).
-static const uint32_t FLASH_SAVE_MOVING_INTERVAL_MS = 2000;  // 2 с
 
 // =====================================================================
 // setup / dump_config
@@ -52,9 +51,7 @@ void JalouzeeBlinds::setup() {
   // Восстанавливаем счётчик импульсов Холла из последней сохранённой позиции —
   // иначе после ребута он стартует с 0, теряя привязку к калибровочным точкам
   // hall_closed/hall_open. Обязательно ДО hall_adc_.setup() (там прикрепляются
-  // прерывания). Не панацея — если питание пропало посреди хода до очередного
-  // сохранения, восстановленное значение будет неточным (см. operation_blocked_
-  // ниже и учащённое сохранение в handle_movement_()).
+  // прерывания).
   if (this->store_.hall_calibrated) {
     float seed = this->angle_cal_.percent_to_raw(ACTIVE_SOURCE_HALL, this->store_.last_angle_percent);
     if (!std::isnan(seed)) {
@@ -63,20 +60,26 @@ void JalouzeeBlinds::setup() {
   }
   this->hall_adc_.setup();
 
-  // --- п.2: поведение после потери питания, если выбран Hall (инкрементальный
-  // энкодер — теряет абсолютную привязку) --- ADC абсолютный (текущее
-  // напряжение = текущее положение прямо сейчас), в этой защите не нуждается.
-  if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER && this->hall_adc_.has_hall()) {
+  // --- п.2: движение было прервано потерей питания (movement_in_progress не
+  // сброшен штатным завершением — см. store.h) --- восстановленная выше
+  // позиция Hall в этом случае недостоверна: неизвестно, сколько реально
+  // прошло с последнего сохранения. ADC не затрагиваем — это абсолютный
+  // датчик (текущее напряжение = текущее положение прямо сейчас).
+  bool movement_interrupted = this->store_.movement_in_progress;
+  if (movement_interrupted) {
+    this->store_.movement_in_progress = false;
+    this->save_to_flash_();
+  }
+  if (movement_interrupted && this->hall_adc_.has_hall()) {
     bool mpu_ok = this->mpu_.has_mpu() && this->store_.mpu_calibrated;
     if (mpu_ok) {
-      ESP_LOGW(TAG, "После перезагрузки: показания Hall не абсолютны или недостоверны. "
-                     "Временно (на текущую сессию) используем MPU6050 как источник угла.");
+      ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания. Позиция Hall недостоверна — "
+                     "временно (на текущую сессию) используем MPU6050 как источник угла.");
       // ничего дополнительно менять не нужно — resolve_active_source() сама
-      // отдаст приоритет MPU, если store_.angle_source_mode запросил ENCODER,
-      // но энкодер ещё не переподтверждён калибровкой в этой сессии.
-      // Реализовано через operation_blocked_ = false и forced-фолбэк ниже.
+      // отдаст приоритет MPU и не станет использовать Hall, пока он не будет
+      // переподтверждён калибровкой. Реализовано через operation_blocked_.
     } else {
-      ESP_LOGW(TAG, "После перезагрузки: источник Hall выбран, но резервный MPU6050 "
+      ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания, а резервный MPU6050 "
                      "недоступен/не откалиброван. Управление жалюзи заблокировано до калибровки.");
       this->operation_blocked_ = true;
     }
@@ -201,6 +204,7 @@ void JalouzeeBlinds::enter_calibration_() {
   ESP_LOGI(TAG, "Начало калибровки");
   this->motor_.stop();
   this->target_percent_ = NAN;
+  this->clear_movement_in_progress_();
   this->jog_mode_ = true;
   this->cal_state_ = CAL_WAIT_CLOSED;
   this->set_calibration_message_(MSG_WAIT_CLOSED);
@@ -292,6 +296,7 @@ void JalouzeeBlinds::trigger_fault_() {
   this->fault_active_ = true;
   this->motor_.stop();
   this->target_percent_ = NAN;
+  this->clear_movement_in_progress_();
   this->sub_entities_.set_fault(true);
 }
 
@@ -351,7 +356,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
 
   // Блокируем управление, если нет ни одного откалиброванного и доступного сейчас
   // источника угла — это покрывает и полностью не откалиброванное устройство
-  // (после первой прошивки), и уже существующий кейс operation_blocked_ (см. setup()).
+  // (после первой прошивки), и обнаруженное прерванное движение (см. setup()).
   if (this->angle_cal_.resolve_active_source(this->operation_blocked_) == ACTIVE_SOURCE_NONE) {
     ESP_LOGW(TAG, "Управление жалюзи заблокировано: нет откалиброванного источника угла. "
                    "Выполните калибровку.");
@@ -365,6 +370,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
   if (call.get_stop()) {
     this->motor_.stop();
     this->target_percent_ = NAN;
+    this->clear_movement_in_progress_();
     return;
   }
 
@@ -409,6 +415,14 @@ void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
     this->motor_.close();
   } else {
     this->motor_.stop();
+    return;  // уже на месте — реального движения не было, писать flash не нужно
+  }
+
+  // Реально начали двигаться — фиксируем во flash, чтобы после ребута точно
+  // знать, было ли движение прервано потерей питания (см. setup()).
+  if (!this->store_.movement_in_progress) {
+    this->store_.movement_in_progress = true;
+    this->save_to_flash_();
   }
 }
 
@@ -428,6 +442,7 @@ void JalouzeeBlinds::handle_movement_() {
     this->motor_.stop();
     this->target_percent_ = NAN;
     this->store_.last_angle_percent = this->current_percent_;
+    this->store_.movement_in_progress = false;
     this->save_to_flash_();
     this->last_flash_save_ms_ = millis();
     this->position = this->current_percent_ / 100.0f;
@@ -450,16 +465,6 @@ void JalouzeeBlinds::handle_movement_() {
   } else {
     this->position = this->current_percent_ / 100.0f;
     this->publish_state();
-
-    // Учащённое сохранение во время движения (см. FLASH_SAVE_MOVING_INTERVAL_MS) —
-    // минимизирует расхождение сохранённой позиции с реальной при обрыве
-    // питания посреди хода.
-    uint32_t now = millis();
-    if (now - this->last_flash_save_ms_ > FLASH_SAVE_MOVING_INTERVAL_MS) {
-      this->store_.last_angle_percent = this->current_percent_;
-      this->save_to_flash_();
-      this->last_flash_save_ms_ = now;
-    }
   }
 }
 
@@ -477,6 +482,13 @@ void JalouzeeBlinds::load_from_flash_() {
   // zero-init/старых данных), иначе auto-калибровка ошибочно решит, что одна
   // из точек уже поймана.
   this->angle_cal_.normalize_uncalibrated();
+}
+
+void JalouzeeBlinds::clear_movement_in_progress_() {
+  if (this->store_.movement_in_progress) {
+    this->store_.movement_in_progress = false;
+    this->save_to_flash_();
+  }
 }
 
 }  // namespace jalouzee_blinds
