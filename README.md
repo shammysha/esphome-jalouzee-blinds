@@ -77,7 +77,7 @@ sensor:
 cover:
   - platform: jalouzee_blinds
     id: blinds
-    name: "Living Room Blinds"
+    name: "Jalouzee"
     motor:
       in1: GPIO25
       in2: GPIO26
@@ -268,6 +268,28 @@ command. So it always moves directly to the requested percentage, with no
 stepping — use it when you need a precise angle, especially at/near the
 0%/100% extremes. Both controls drive the exact same underlying angle; they
 just differ in how 0%/100% requests are handled.
+
+By the way, all of this long explanation can be sidestepped with a simple
+trigger in Home Assistant that intercepts blind positioning events and
+redirects them to the slat tilt service:
+
+```yaml
+alias: Blinds - fix for setting position
+description: ""
+mode: single
+triggers:
+  - event_type: call_service
+    event_data:
+      domain: cover
+      service: set_cover_position
+    trigger: event
+conditions: []
+actions:
+  - data_template:
+      entity_id: "{{ trigger.event.data.service_data.entity_id }}"
+      tilt_position: "{{ trigger.event.data.service_data.position|int(0) }}"
+    action: cover.set_cover_tilt_position
+```
 
 ### What gets saved, and how
 
