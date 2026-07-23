@@ -56,8 +56,8 @@ class MotorSensor {
   volatile uint8_t hall_last_state_{0};
 
   InternalGPIOPin *adc_gpio_pin_{nullptr};
-  // Внутренний экземпляр штатного ADC-сенсора ESPHome (ESP-IDF adc_oneshot
-  // драйвер). Не регистрируется в App (нет периодического update()) — читаем
+  // Внутренний экземпляр штатного ADC-сенсора ESPHome (драйвер зависит от
+  // платформы). Не регистрируется в App (нет периодического update()) — читаем
   // значение вручную через sample() когда нужно (см. read_adc_raw()).
   adc::ADCSensor *adc_sensor_{nullptr};
 

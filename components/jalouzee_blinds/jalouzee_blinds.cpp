@@ -110,7 +110,7 @@ void JalouzeeBlinds::dump_config() {
     ESP_LOGCONFIG(TAG, "  Датчик Холла энкодера: 7 PPR x передаточное число редуктора, A/B заданы");
   }
   if (this->hall_adc_.has_adc()) {
-    ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан (ESP-IDF adc_oneshot драйвер)");
+    ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан (штатный ADC-компонент ESPHome)");
   }
   if (this->mpu_.has_mpu()) {
     ESP_LOGCONFIG(TAG, "  MPU6050: используется внешний sensor");

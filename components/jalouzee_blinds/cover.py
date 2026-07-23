@@ -6,9 +6,8 @@ from esphome.const import CONF_ID
 from esphome.core import CORE
 
 CODEOWNERS = ["@your-github-handle"]
-DEPENDENCIES = ["esp32"]
 # 'adc' подключаем автоматически (используется внутри компонента для чтения
-# резистора на оси мотора через штатный ESP-IDF ADC-драйвер ESPHome, без
+# резистора на оси мотора через штатный ADC-компонент ESPHome, без
 # необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
 AUTO_LOAD = [
     "sensor",
@@ -85,7 +84,10 @@ ENCODER_SCHEMA = cv.All(
         {
             cv.Optional(CONF_A): pins.internal_gpio_input_pin_schema,
             cv.Optional(CONF_B): pins.internal_gpio_input_pin_schema,
-            cv.Optional(CONF_ADC): pins.internal_gpio_input_pin_schema,
+            # adc.validate_adc_pin (не internal_gpio_input_pin_schema) — проверяет
+            # ADC-совместимость пина под конкретную платформу (например, на ESP8266
+            # это должен быть строго A0/GPIO17).
+            cv.Optional(CONF_ADC): adc.validate_adc_pin,
         }
     ),
     _validate_encoder,
@@ -134,7 +136,7 @@ CONFIG_SCHEMA = cv.All(
     )
     .extend(cv.COMPONENT_SCHEMA),
     _validate_root,
-    cv.only_on(["esp32"]),
+    cv.only_on(["esp32", "esp8266"]),
 )
 
 
