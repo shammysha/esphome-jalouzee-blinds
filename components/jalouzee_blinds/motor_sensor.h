@@ -25,6 +25,11 @@ class MotorSensor {
   bool has_hall() const { return this->has_hall_; }
   bool has_adc() const { return this->has_adc_; }
 
+  // Восстанавливает счётчик импульсов из значения, сохранённого во flash (см.
+  // JalouzeeBlinds::setup()) — иначе после ребута счётчик стартует с 0, теряя
+  // привязку к калибровочным точкам closed/open. Вызывать ДО setup().
+  void seed_hall_pulse_count(int32_t value) { this->hall_pulse_count_ = value; }
+
   void setup();
 
   float read_hall_raw() const { return static_cast<float>(this->hall_pulse_count_); }

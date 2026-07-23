@@ -129,6 +129,29 @@ float Controller::raw_to_percent(ActiveAngleSource src, float raw) const {
   return pct;
 }
 
+float Controller::percent_to_raw(ActiveAngleSource src, float percent) const {
+  float closed = 0, open = 0;
+  switch (src) {
+    case ACTIVE_SOURCE_MPU6050:
+      closed = this->store_->mpu_closed;
+      open = this->store_->mpu_open;
+      break;
+    case ACTIVE_SOURCE_HALL:
+      closed = this->store_->hall_closed;
+      open = this->store_->hall_open;
+      break;
+    case ACTIVE_SOURCE_ADC:
+      closed = this->store_->adc_closed;
+      open = this->store_->adc_open;
+      break;
+    default:
+      return NAN;
+  }
+  // Некалиброванный источник даёт closed/open == NAN, что естественным образом
+  // распространяется на результат — вызывающий должен проверять calibrated сам.
+  return closed + (percent / 100.0f) * (open - closed);
+}
+
 bool Controller::try_finish_calibration(ActiveAngleSource src, float closed, float open) {
   float min_delta = 0;
   float delta = fabsf(open - closed);

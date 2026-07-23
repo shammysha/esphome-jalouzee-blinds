@@ -16,14 +16,19 @@ static const char *const MSG_DONE = "Калибровка завершена";
 
 static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — минимальное изменение угла, чтобы не считать "завис"
 static const float STEP_TARGET_EPSILON = 0.5f;    // % — попадание в целевую позицию
-static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 30000;  // не пишем в flash чаще, бережём ресурс
+// В простое пишем редко — ручного управления в проекте не предполагается, риск
+// расхождения позиции копится только между визитами, а не посреди хода.
+static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 300000;  // 5 мин
+// Во время движения пишем значительно чаще — минимизирует расхождение
+// сохранённой позиции с реальной при обрыве питания посреди хода (движения
+// короткие и нечастые, поэтому износ flash от этого не растёт заметно).
+static const uint32_t FLASH_SAVE_MOVING_INTERVAL_MS = 2000;  // 2 с
 
 // =====================================================================
 // setup / dump_config
 // =====================================================================
 void JalouzeeBlinds::setup() {
   this->motor_.setup();
-  this->hall_adc_.setup();
 
   this->angle_cal_.set_sensors(&this->hall_adc_, &this->mpu_);
   this->angle_cal_.set_store(&this->store_);
@@ -44,18 +49,34 @@ void JalouzeeBlinds::setup() {
 
   this->current_percent_ = this->store_.last_angle_percent;
 
-  // --- п.2: поведение после потери питания, если выбран Hall/ADC ---
-  if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) {
+  // Восстанавливаем счётчик импульсов Холла из последней сохранённой позиции —
+  // иначе после ребута он стартует с 0, теряя привязку к калибровочным точкам
+  // hall_closed/hall_open. Обязательно ДО hall_adc_.setup() (там прикрепляются
+  // прерывания). Не панацея — если питание пропало посреди хода до очередного
+  // сохранения, восстановленное значение будет неточным (см. operation_blocked_
+  // ниже и учащённое сохранение в handle_movement_()).
+  if (this->store_.hall_calibrated) {
+    float seed = this->angle_cal_.percent_to_raw(ACTIVE_SOURCE_HALL, this->store_.last_angle_percent);
+    if (!std::isnan(seed)) {
+      this->hall_adc_.seed_hall_pulse_count(static_cast<int32_t>(lroundf(seed)));
+    }
+  }
+  this->hall_adc_.setup();
+
+  // --- п.2: поведение после потери питания, если выбран Hall (инкрементальный
+  // энкодер — теряет абсолютную привязку) --- ADC абсолютный (текущее
+  // напряжение = текущее положение прямо сейчас), в этой защите не нуждается.
+  if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER && this->hall_adc_.has_hall()) {
     bool mpu_ok = this->mpu_.has_mpu() && this->store_.mpu_calibrated;
     if (mpu_ok) {
-      ESP_LOGW(TAG, "После перезагрузки: показания Hall/ADC не абсолютны или недостоверны. "
+      ESP_LOGW(TAG, "После перезагрузки: показания Hall не абсолютны или недостоверны. "
                      "Временно (на текущую сессию) используем MPU6050 как источник угла.");
       // ничего дополнительно менять не нужно — resolve_active_source() сама
       // отдаст приоритет MPU, если store_.angle_source_mode запросил ENCODER,
       // но энкодер ещё не переподтверждён калибровкой в этой сессии.
       // Реализовано через operation_blocked_ = false и forced-фолбэк ниже.
     } else {
-      ESP_LOGW(TAG, "После перезагрузки: источник Hall/ADC выбран, но резервный MPU6050 "
+      ESP_LOGW(TAG, "После перезагрузки: источник Hall выбран, но резервный MPU6050 "
                      "недоступен/не откалиброван. Управление жалюзи заблокировано до калибровки.");
       this->operation_blocked_ = true;
     }
@@ -429,6 +450,16 @@ void JalouzeeBlinds::handle_movement_() {
   } else {
     this->position = this->current_percent_ / 100.0f;
     this->publish_state();
+
+    // Учащённое сохранение во время движения (см. FLASH_SAVE_MOVING_INTERVAL_MS) —
+    // минимизирует расхождение сохранённой позиции с реальной при обрыве
+    // питания посреди хода.
+    uint32_t now = millis();
+    if (now - this->last_flash_save_ms_ > FLASH_SAVE_MOVING_INTERVAL_MS) {
+      this->store_.last_angle_percent = this->current_percent_;
+      this->save_to_flash_();
+      this->last_flash_save_ms_ = now;
+    }
   }
 }
 

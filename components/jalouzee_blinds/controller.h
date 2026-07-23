@@ -56,6 +56,11 @@ class Controller {
   ActiveAngleSource resolve_active_source(bool operation_blocked) const;
   float read_raw(ActiveAngleSource src) const;
   float raw_to_percent(ActiveAngleSource src, float raw) const;
+  // Обратное преобразование raw_to_percent — по калибровочным точкам источника
+  // восстанавливает сырое значение, соответствующее проценту (используется для
+  // восстановления hall_pulse_count_ из сохранённой позиции после ребута —
+  // см. JalouzeeBlinds::setup()). Для некалиброванного источника вернёт NAN.
+  float percent_to_raw(ActiveAngleSource src, float percent) const;
 
   // Пытается принять калибровку источника по двум зафиксированным точкам (см.
   // finish_calibration_ в jalouzee_blinds.cpp) — принимает, если |open-closed|
