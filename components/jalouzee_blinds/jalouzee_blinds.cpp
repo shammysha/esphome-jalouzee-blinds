@@ -108,6 +108,7 @@ void JalouzeeBlinds::setup() {
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
 
   this->position = this->current_percent_ / 100.0f;
+  this->tilt = this->position;
   this->publish_state();
 }
 
@@ -131,7 +132,14 @@ cover::CoverTraits JalouzeeBlinds::get_traits() {
   auto traits = cover::CoverTraits();
   traits.set_is_assumed_state(this->operation_blocked_);
   traits.set_supports_position(true);
-  traits.set_supports_tilt(false);
+  // A dedicated, unambiguous channel for precise positioning — HA's tilt
+  // slider sends cover.set_cover_tilt_position, which arrives via
+  // call.get_tilt() and is a separate CoverCall field from position_. Unlike
+  // position (which HA also uses, identically, for open/close arrows and
+  // voice commands — see control()), a tilt call can never originate from
+  // open/close, so it's safe to move straight there without the stepped
+  // closed->50%->open protection.
+  traits.set_supports_tilt(true);
   traits.set_supports_stop(true);
   return traits;
 }
@@ -213,6 +221,7 @@ void JalouzeeBlinds::enter_calibration_() {
   // 50% keeps both arrows (up/down) active in HA during calibration — the
   // real position isn't calibrated yet; we report it back in finish/cancel.
   this->position = 0.5f;
+  this->tilt = this->position;
   this->publish_state();
 }
 
@@ -250,6 +259,7 @@ void JalouzeeBlinds::finish_calibration_() {
   this->current_percent_ = 100.0f;
   this->store_.last_angle_percent = this->current_percent_;
   this->position = this->current_percent_ / 100.0f;
+  this->tilt = this->position;
   this->publish_state();
 
   this->save_to_flash_();
@@ -272,6 +282,7 @@ void JalouzeeBlinds::cancel_calibration_() {
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
   // restore the real (last known) position instead of the forced 50%
   this->position = this->current_percent_ / 100.0f;
+  this->tilt = this->position;
   this->publish_state();
 }
 
@@ -390,6 +401,17 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
     return;
   }
 
+  if (call.get_tilt().has_value()) {
+    // cover.set_cover_tilt_position is a distinct HA service from
+    // open/close/set_cover_position — it can never originate from an arrow
+    // tap or a voice "open/close" command (see the position branch below,
+    // and get_traits()), so it's safe to move straight there.
+    float pct = *call.get_tilt() * 100.0f;
+    this->current_step_index_ = (pct < 25) ? 0 : (pct < 75 ? 1 : 2);
+    this->start_move_to_percent_(pct);
+    return;
+  }
+
   if (call.get_position().has_value()) {
     float pos = *call.get_position();  // 0.0..1.0
     float pct = pos * 100.0f;
@@ -463,6 +485,7 @@ void JalouzeeBlinds::handle_movement_() {
     this->save_to_flash_();
     this->last_flash_save_ms_ = millis();
     this->position = this->current_percent_ / 100.0f;
+    this->tilt = this->position;
     this->publish_state();
 
     // We actually reached the end of travel — opportunistic auto-
@@ -488,6 +511,7 @@ void JalouzeeBlinds::handle_movement_() {
     if (now - this->last_position_publish_ms_ >= POSITION_PUBLISH_INTERVAL_MS) {
       this->last_position_publish_ms_ = now;
       this->position = this->current_percent_ / 100.0f;
+      this->tilt = this->position;
       this->publish_state();
     }
   }
