@@ -146,11 +146,15 @@ you have both Hall and MPU6050 configured, a single pass calibrates both.
 
 ## Control
 
-- Regular open/close (arrows in HA, no slider) move the blinds through
-  three fixed positions: **Closed → 50% → Open** (and back), one step per
-  press.
-- The slider/an arbitrary position moves the blinds directly to the given
-  percentage.
+- Regular open/close (arrows in HA, or voice commands like "open the
+  blinds") move the blinds through three fixed positions: **Closed → 50% →
+  Open** (and back), one step per press. This also applies to the main
+  position slider dragged to exactly 0% or 100% — see "Position vs. tilt"
+  below for why.
+- The **tilt** control (a separate slider/dial in HA, since this cover
+  supports both position and tilt) always moves directly to the exact
+  percentage requested, with no stepping — use it for precise intermediate
+  angles.
 - The Stop button halts movement immediately.
 
 ---
@@ -229,12 +233,42 @@ manually controlled by the user via the jog buttons.
 
 ### Three fixed positions
 
-The regular open/close arrows (without a slider) always move the blinds in
-steps between three positions — 0% / 50% / 100%, one step per press,
-regardless of where the blinds currently are between steps. Directly
-setting an arbitrary percentage (via the slider) moves the blinds straight
+The regular open/close arrows always move the blinds in steps between three
+positions — 0% / 50% / 100%, one step per press, regardless of where the
+blinds currently are between steps. Setting an arbitrary percentage via the
+**tilt** control (see "Position vs. tilt" below) moves the blinds straight
 to that point and updates the "current step" accordingly for subsequent
 arrow presses.
+
+This stepping isn't just a convenience — for a full ~180° tilt mechanism,
+both 0% and 100% are physically **closed** (slats rotated to opposite
+extremes), with the genuinely open, light-passing state at ~50% in between.
+Moving straight from 0% to 100% would sweep through the open state and end
+up closed again on the other side — the opposite of what "open the blinds"
+should do. Stepping one position at a time guarantees an open/close command
+always lands on the correct state.
+
+### Position vs. tilt
+
+Home Assistant's cover domain doesn't let a component tell an open/close
+arrow tap, a voice command ("open the blinds"), and the main position
+slider dragged to exactly 0%/100% apart — all of them arrive identically as
+`cover.set_cover_position` with position 1.0 or 0.0 (this is true even for
+the arrows and voice commands specifically — see
+`homeassistant/components/esphome/cover.py`, `async_open_cover`/
+`async_close_cover` always call `cover_command(position=1.0/0.0)`
+regardless of what the entity supports). That's why the position slider
+uses the stepped closed→50%→open logic described above at its extremes —
+it has to, since there's no way to know whether a position=1.0 call came
+from an arrow or from the slider itself.
+
+The **tilt** control is a separate HA service
+(`cover.set_cover_tilt_position`), sent over a distinct field from
+position, and can never originate from an open/close arrow or voice
+command. So it always moves directly to the requested percentage, with no
+stepping — use it when you need a precise angle, especially at/near the
+0%/100% extremes. Both controls drive the exact same underlying angle; they
+just differ in how 0%/100% requests are handled.
 
 ### What gets saved, and how
 
