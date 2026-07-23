@@ -17,20 +17,6 @@ static const int8_t HALL_QUADRATURE_TABLE[16] = {
     0, 1, -1, 0,   //
 };
 
-// Порог детекта перескока endless-потенциометра через границу оборота (см.
-// read_adc_raw()) — половина типичного полного электрического диапазона ADC
-// для платформы. При нормальном вращении (до 50 об/мин, читаем каждый тик
-// loop() — многие десятки отсчётов на оборот) скачок между соседними
-// отсчётами на порядки меньше порога, так что запас большой; перескок такой
-// величины возможен практически только на границе оборота. Ориентировочные
-// константы — при необходимости подстроить под реальные показания железа.
-#ifdef USE_ESP32
-static const float ADC_WRAP_THRESHOLD_V = 1.65f;  // половина от ~3.3В (ADC_ATTEN_DB_12_COMPAT)
-#else
-static const float ADC_WRAP_THRESHOLD_V = 0.5f;  // половина от ~1В (штатный ADC ESP8266)
-#endif
-static const float ADC_WRAP_CORRECTION_V = ADC_WRAP_THRESHOLD_V * 2.0f;
-
 void MotorSensor::setup() {
   if (this->has_hall_) {
     this->encoder_a_pin_->setup();
@@ -45,7 +31,7 @@ void MotorSensor::setup() {
     this->encoder_a_pin_->attach_interrupt(&MotorSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
     this->encoder_b_pin_->attach_interrupt(&MotorSensor::hall_isr_, this, gpio::INTERRUPT_ANY_EDGE);
   }
-  // --- ADC (endless-потенциометр на оси мотора) ---
+  // --- ADC (резистор на оси мотора) ---
   // Используем штатный ADC-компонент ESPHome (конкретный драйвер зависит от
   // платформы — ESP-IDF adc_oneshot на ESP32, встроенный ADC на ESP8266 и т.д.,
   // включая калибровку по эталонной кривой/линии, если она доступна для
@@ -58,12 +44,6 @@ void MotorSensor::setup() {
     this->adc_sensor_->set_attenuation(adc::ADC_ATTEN_DB_12_COMPAT);
 #endif
     this->adc_sensor_->setup();
-    // Стартовый отсчёт — до первого реального read_adc_raw(), чтобы не
-    // засчитать фантомный "перескок" от значения по умолчанию (0) к реальному
-    // напряжению на первом же вызове (аналог hall_last_state_ в hall-ветке
-    // выше). adc_unwrapped_ к этому моменту уже восстановлен из flash через
-    // seed_adc_position() (см. JalouzeeBlinds::setup()), если применимо.
-    this->adc_last_raw_ = this->adc_sensor_->sample();
   }
 }
 
@@ -71,19 +51,9 @@ float MotorSensor::read_adc_raw() {
   if (this->adc_sensor_ == nullptr) return NAN;
   // sample() выполняет одиночное измерение через штатный ADC-драйвер платформы
   // (с калибровкой, если она доступна) и возвращает напряжение в вольтах.
-  float raw = this->adc_sensor_->sample();
-  float delta = raw - this->adc_last_raw_;
-  // Разворачиваем перескок через границу оборота endless-потенциометра (см.
-  // ADC_WRAP_THRESHOLD_V) в непрерывно накапливаемую величину — иначе каждый
-  // оборот вала давал бы разрыв напряжения вместо продолжения движения.
-  if (delta > ADC_WRAP_THRESHOLD_V) {
-    delta -= ADC_WRAP_CORRECTION_V;
-  } else if (delta < -ADC_WRAP_THRESHOLD_V) {
-    delta += ADC_WRAP_CORRECTION_V;
-  }
-  this->adc_last_raw_ = raw;
-  this->adc_unwrapped_ += delta;
-  return this->adc_unwrapped_;
+  // Для наших целей единица измерения неважна — калибровка "закрыто/открыто"
+  // работает с любой монотонной величиной.
+  return this->adc_sensor_->sample();
 }
 
 void MotorSensor::hall_isr_(MotorSensor *arg) {

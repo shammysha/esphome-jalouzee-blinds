@@ -52,48 +52,36 @@ void JalouzeeBlinds::setup() {
 
   this->current_percent_ = this->store_.last_angle_percent;
 
-  // Восстанавливаем накопленную позицию Hall/ADC из последней сохранённой —
-  // иначе после ребута счётчик/накопитель стартует с 0, теряя привязку к
-  // калибровочным точкам closed/open. Обязательно ДО hall_adc_.setup() (там
-  // прикрепляются прерывания Hall и берётся стартовый отсчёт ADC).
+  // Восстанавливаем счётчик импульсов Холла из последней сохранённой позиции —
+  // иначе после ребута он стартует с 0, теряя привязку к калибровочным точкам
+  // hall_closed/hall_open. Обязательно ДО hall_adc_.setup() (там прикрепляются
+  // прерывания).
   if (this->store_.hall_calibrated) {
     float seed = this->angle_cal_.percent_to_raw(ACTIVE_SOURCE_HALL, this->store_.last_angle_percent);
     if (!std::isnan(seed)) {
       this->hall_adc_.seed_hall_pulse_count(static_cast<int32_t>(lroundf(seed)));
     }
   }
-  if (this->store_.adc_calibrated) {
-    float seed = this->angle_cal_.percent_to_raw(ACTIVE_SOURCE_ADC, this->store_.last_angle_percent);
-    if (!std::isnan(seed)) {
-      this->hall_adc_.seed_adc_position(seed);
-    }
-  }
   this->hall_adc_.setup();
 
   // --- п.2: движение было прервано потерей питания (movement_in_progress не
   // сброшен штатным завершением — см. store.h) --- восстановленная выше
-  // накопленная позиция Hall/ADC в этом случае недостоверна: неизвестно,
-  // сколько реально прошло (сколько оборотов/импульсов) с последнего
-  // сохранения. Оба — накопительные датчики на быстром валу мотора, взаимно
-  // исключающие, поэтому проверяем условие одинаково для обоих.
+  // позиция Hall в этом случае недостоверна: неизвестно, сколько реально
+  // прошло с последнего сохранения. ADC не затрагиваем — это абсолютный
+  // датчик (текущее напряжение = текущее положение прямо сейчас).
   bool movement_interrupted = this->store_.movement_in_progress;
   if (movement_interrupted) {
     this->store_.movement_in_progress = false;
     this->save_to_flash_();
   }
-  if (movement_interrupted && (this->hall_adc_.has_hall() || this->hall_adc_.has_adc())) {
-    // Гасим Hall/ADC независимо от наличия MPU-fallback — encoder_untrusted_
-    // не смешиваем с operation_blocked_ (которое лишь означает "нет вообще
-    // никакого источника, управление заблокировано"), иначе resolve_active_source()
-    // не получила бы сигнал недоверия в режиме "encoder" при доступном MPU.
-    this->encoder_untrusted_ = true;
+  if (movement_interrupted && this->hall_adc_.has_hall()) {
     bool mpu_ok = this->mpu_.has_mpu() && this->store_.mpu_calibrated;
     if (mpu_ok) {
-      ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания. Позиция Hall/ADC недостоверна — "
+      ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания. Позиция Hall недостоверна — "
                      "временно (на текущую сессию) используем MPU6050 как источник угла.");
       // ничего дополнительно менять не нужно — resolve_active_source() сама
-      // отдаст приоритет MPU и не станет использовать Hall/ADC, пока источник
-      // не будет переподтверждён калибровкой. Реализовано через encoder_untrusted_.
+      // отдаст приоритет MPU и не станет использовать Hall, пока он не будет
+      // переподтверждён калибровкой. Реализовано через operation_blocked_.
     } else {
       ESP_LOGW(TAG, "Обнаружено движение, прерванное потерей питания, а резервный MPU6050 "
                      "недоступен/не откалиброван. Управление жалюзи заблокировано до калибровки.");
@@ -122,7 +110,7 @@ void JalouzeeBlinds::dump_config() {
     ESP_LOGCONFIG(TAG, "  Датчик Холла энкодера: 7 PPR x передаточное число редуктора, A/B заданы");
   }
   if (this->hall_adc_.has_adc()) {
-    ESP_LOGCONFIG(TAG, "  Endless-потенциометр на оси мотора: ADC пин задан (штатный ADC-компонент ESPHome)");
+    ESP_LOGCONFIG(TAG, "  Резистор на оси мотора: ADC пин задан (штатный ADC-компонент ESPHome)");
   }
   if (this->mpu_.has_mpu()) {
     ESP_LOGCONFIG(TAG, "  MPU6050: используется внешний sensor");
@@ -154,7 +142,7 @@ void JalouzeeBlinds::loop() {
   }
 
   // пересчёт текущего угла (если есть хоть один рабочий калиброванный источник)
-  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->encoder_untrusted_);
+  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->operation_blocked_);
   if (src != ACTIVE_SOURCE_NONE) {
     float raw = this->angle_cal_.read_raw(src);
     float pct = this->angle_cal_.raw_to_percent(src, raw);
@@ -245,7 +233,6 @@ void JalouzeeBlinds::finish_calibration_() {
   }
 
   this->operation_blocked_ = false;
-  this->encoder_untrusted_ = false;
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
   this->motor_.stop();
@@ -377,7 +364,7 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
   // Блокируем управление, если нет ни одного откалиброванного и доступного сейчас
   // источника угла — это покрывает и полностью не откалиброванное устройство
   // (после первой прошивки), и обнаруженное прерванное движение (см. setup()).
-  if (this->angle_cal_.resolve_active_source(this->encoder_untrusted_) == ACTIVE_SOURCE_NONE) {
+  if (this->angle_cal_.resolve_active_source(this->operation_blocked_) == ACTIVE_SOURCE_NONE) {
     ESP_LOGW(TAG, "Управление жалюзи заблокировано: нет откалиброванного источника угла. "
                    "Выполните калибровку.");
     return;
