@@ -146,7 +146,15 @@ async def to_code(config):
     CORE.register_platform_component("select", None)
     CORE.register_platform_component("number", None)
     CORE.register_platform_component("text_sensor", None)
-    for _ in range(2):
+    # 2 базовых ("Откалибровано", "Авария") + per-source диагностика калибровки,
+    # создаваемая только для реально настроенных источников (см. SubEntities::setup):
+    # 1 доп. для encoder (Hall либо ADC — взаимоисключающие) + 1 доп. для angle.
+    binary_sensor_count = 2
+    if CONF_ENCODER in config:
+        binary_sensor_count += 1
+    if CONF_ANGLE in config:
+        binary_sensor_count += 1
+    for _ in range(binary_sensor_count):
         CORE.register_platform_component("binary_sensor", None)
 
     var = await cover.new_cover(config)

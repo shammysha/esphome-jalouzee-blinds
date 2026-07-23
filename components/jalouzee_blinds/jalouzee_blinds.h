@@ -60,6 +60,9 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void capture_calibration_point_(bool is_closed_point);
   void finish_calibration_();
   void set_calibration_message_(const std::string &msg, bool temporary = false);
+  // Публикует "Откалибровано" и per-source диагностические бинарные сенсоры —
+  // вызывать при любом изменении калибровочных данных.
+  void publish_calibration_diagnostics_();
 
   // --- движение к цели / логика 3 положений ---
   void handle_open_close_request_(bool opening);

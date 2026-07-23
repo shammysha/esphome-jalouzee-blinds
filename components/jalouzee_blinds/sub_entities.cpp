@@ -6,6 +6,11 @@
 namespace esphome {
 namespace jalouzee_blinds {
 
+// Категория "diagnostic" для per-source сенсоров калибровки — см.
+// ENTITY_FIELD_ENTITY_CATEGORY_SHIFT/EntityCategory в esphome/core/entity_base.h.
+static const uint32_t DIAGNOSTIC_ENTITY_FIELDS = static_cast<uint32_t>(ENTITY_CATEGORY_DIAGNOSTIC)
+                                                  << ENTITY_FIELD_ENTITY_CATEGORY_SHIFT;
+
 void CalibrationButton::press_action() { this->parent_->on_calibration_button_pressed(); }
 void CancelCalibrationButton::press_action() { this->parent_->on_cancel_calibration_button_pressed(); }
 void FaultResetButton::press_action() { this->parent_->on_fault_reset_button_pressed(); }
@@ -14,7 +19,7 @@ void FaultTimeoutNumber::control(float value) { this->parent_->on_fault_timeout_
 
 void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bool has_hall, bool has_adc,
                          bool has_mpu, const char *initial_angle_source, uint32_t initial_fault_timeout_s) {
-  this->entity_name_storage_.reserve(8);
+  this->entity_name_storage_.reserve(10);
   auto make_name = [this](std::string name) -> const char * {
     this->entity_name_storage_.push_back(std::move(name));
     return this->entity_name_storage_.back().c_str();
@@ -65,6 +70,24 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
   this->fault_binary_sensor_ = new binary_sensor::BinarySensor();
   App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Авария"), 0, 0);
   this->fault_binary_sensor_->publish_state(false);
+
+  // Диагностика калибровки по каждому НАСТРОЕННОМУ источнику (см. cover.py —
+  // ровно столько же дополнительных binary_sensor учтено в platform_counts).
+  if (has_hall) {
+    this->hall_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
+    App.register_binary_sensor(this->hall_calibrated_binary_sensor_, make_name(base_name + " Hall откалиброван"), 0,
+                                DIAGNOSTIC_ENTITY_FIELDS);
+  }
+  if (has_adc) {
+    this->adc_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
+    App.register_binary_sensor(this->adc_calibrated_binary_sensor_, make_name(base_name + " ADC откалиброван"), 0,
+                                DIAGNOSTIC_ENTITY_FIELDS);
+  }
+  if (has_mpu) {
+    this->angle_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
+    App.register_binary_sensor(this->angle_calibrated_binary_sensor_, make_name(base_name + " Angle откалиброван"), 0,
+                                DIAGNOSTIC_ENTITY_FIELDS);
+  }
 }
 
 }  // namespace jalouzee_blinds

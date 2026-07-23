@@ -96,7 +96,7 @@ void JalouzeeBlinds::setup() {
     this->sub_entities_.setup(this, this->get_name(), this->hall_adc_.has_hall(), this->hall_adc_.has_adc(),
                                this->mpu_.has_mpu(), initial_mode, this->fault_timeout_s_);
   }
-  this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
+  this->publish_calibration_diagnostics_();
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
 
   this->position = this->current_percent_ / 100.0f;
@@ -254,7 +254,7 @@ void JalouzeeBlinds::finish_calibration_() {
   this->publish_state();
 
   this->save_to_flash_();
-  this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
+  this->publish_calibration_diagnostics_();
   this->set_calibration_message_(MSG_DONE, /*temporary=*/true);
 
   ESP_LOGI(TAG, "Калибровка завершена и сохранена");
@@ -281,6 +281,19 @@ void JalouzeeBlinds::set_calibration_message_(const std::string &msg, bool tempo
   this->cal_message_is_temporary_ = temporary;
   if (temporary) {
     this->cal_message_expire_ms_ = millis() + 5000;
+  }
+}
+
+void JalouzeeBlinds::publish_calibration_diagnostics_() {
+  this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
+  if (this->hall_adc_.has_hall()) {
+    this->sub_entities_.set_hall_calibrated(this->angle_cal_.is_calibrated(ACTIVE_SOURCE_HALL));
+  }
+  if (this->hall_adc_.has_adc()) {
+    this->sub_entities_.set_adc_calibrated(this->angle_cal_.is_calibrated(ACTIVE_SOURCE_ADC));
+  }
+  if (this->mpu_.has_mpu()) {
+    this->sub_entities_.set_angle_calibrated(this->angle_cal_.is_calibrated(ACTIVE_SOURCE_MPU6050));
   }
 }
 
@@ -464,7 +477,7 @@ void JalouzeeBlinds::handle_movement_() {
     }
     if (auto_calibrated) {
       this->save_to_flash_();
-      this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
+      this->publish_calibration_diagnostics_();
     }
   } else {
     // Throttled — без этого publish_state() уходил бы на каждой итерации

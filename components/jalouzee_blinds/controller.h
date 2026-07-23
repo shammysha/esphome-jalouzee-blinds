@@ -49,6 +49,9 @@ class Controller {
   void normalize_uncalibrated();
 
   bool is_any_calibrated() const;
+  // Диагностика — калиброван ли конкретный источник (см. диагностические
+  // бинарные сенсоры per-source в SubEntities).
+  bool is_calibrated(ActiveAngleSource src) const { return this->is_source_calibrated_(src); }
 
   // hall_untrusted — Hall-энкодер не считается надёжным в этой сессии (обычно
   // из-за обнаруженного прерванного питанием движения, см.

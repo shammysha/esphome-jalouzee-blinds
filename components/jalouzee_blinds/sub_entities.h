@@ -81,6 +81,20 @@ class SubEntities {
   void set_angle_source_state(const std::string &value) { this->angle_source_select_->publish_state(value); }
   void set_fault_timeout_state(uint32_t seconds) { this->fault_timeout_number_->publish_state(seconds); }
 
+  // Диагностические сенсоры калибровки по каждому НАСТРОЕННОМУ источнику
+  // (создаются только для тех, что реально сконфигурированы в YAML — см.
+  // has_hall/has_adc/has_mpu в setup()). Публикация без эффекта, если
+  // соответствующий источник не настроен (указатель nullptr).
+  void set_hall_calibrated(bool calibrated) {
+    if (this->hall_calibrated_binary_sensor_ != nullptr) this->hall_calibrated_binary_sensor_->publish_state(calibrated);
+  }
+  void set_adc_calibrated(bool calibrated) {
+    if (this->adc_calibrated_binary_sensor_ != nullptr) this->adc_calibrated_binary_sensor_->publish_state(calibrated);
+  }
+  void set_angle_calibrated(bool calibrated) {
+    if (this->angle_calibrated_binary_sensor_ != nullptr) this->angle_calibrated_binary_sensor_->publish_state(calibrated);
+  }
+
  protected:
   // configure_entity_() only stores a StringRef (no copy) — keep the built name
   // strings alive here for the lifetime of the device. setup() reserves exactly
@@ -96,6 +110,10 @@ class SubEntities {
   text_sensor::TextSensor *calibration_text_sensor_{nullptr};
   binary_sensor::BinarySensor *calibrated_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *fault_binary_sensor_{nullptr};
+  // Per-source диагностика (nullptr, если источник не настроен).
+  binary_sensor::BinarySensor *hall_calibrated_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *adc_calibrated_binary_sensor_{nullptr};
+  binary_sensor::BinarySensor *angle_calibrated_binary_sensor_{nullptr};
 };
 
 }  // namespace jalouzee_blinds
