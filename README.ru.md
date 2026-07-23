@@ -270,6 +270,28 @@ Cover-домен Home Assistant не даёт компоненту различ�
 нужен точный угол, особенно у самых краёв 0%/100%. Оба контрола управляют
 одним и тем же углом, разница только в обработке запросов на 0%/100%.
 
+В принципе, все это долгое объяснение быстро фиксится триггером в HomeAssitant, где собития по позиционированию жалюзи перенаправляются в сервис позиционирования его ламелей
+
+```yaml
+alias: Жалюзи. Исправление для указания положения
+description: ""
+mode: single
+triggers:
+  - event_type: call_service
+    event_data:
+      domain: cover
+      service: set_cover_position
+    trigger: event
+conditions: []
+actions:
+  - data_template:
+      entity_id: "{{ trigger.event.data.service_data.entity_id }}"
+      tilt_position: "{{ trigger.event.data.service_data.position|int(0) }}"
+    action: cover.set_cover_tilt_position
+```
+
+
+
 ### Что и как сохраняется
 
 Во flash сохраняются: калибровочные данные каждого источника, выбранный
