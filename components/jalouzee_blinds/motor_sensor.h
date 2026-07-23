@@ -35,11 +35,6 @@ class MotorSensor {
   float read_hall_raw() const { return static_cast<float>(this->hall_pulse_count_); }
   float read_adc_raw();
 
-  // диагностика (см. jalouzee_blinds.cpp::loop())
-  int32_t hall_pulse_count() const { return this->hall_pulse_count_; }
-  bool hall_pin_a_level() const { return this->encoder_a_pin_->digital_read(); }
-  bool hall_pin_b_level() const { return this->encoder_b_pin_->digital_read(); }
-
  protected:
   static void hall_isr_(MotorSensor *arg);
 
