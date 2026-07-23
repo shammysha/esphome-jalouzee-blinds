@@ -5,27 +5,28 @@
 namespace esphome {
 namespace jalouzee_blinds {
 
-// Данные, сохраняемые во flash (NVS). Статус аварии сюда НЕ входит — она не
-// должна переживать перезагрузку.
+// Data persisted to flash (NVS). Fault status is NOT included here — it
+// should not survive a reboot.
 struct JalouzeeBlindsStore {
   bool hall_calibrated;
   bool adc_calibrated;
   bool mpu_calibrated;
-  // true между началом реального движения мотора и его штатным завершением
-  // (достижение цели / явный stop / авария / вход в калибровку) — если при
-  // следующей загрузке этот флаг всё ещё true, значит движение было прервано
-  // потерей питания, и позиции Hall доверять нельзя (см. JalouzeeBlinds::setup()).
+  // true between the start of an actual motor movement and its normal
+  // completion (target reached / explicit stop / fault / entering
+  // calibration) — if this flag is still true on the next boot, the
+  // movement was interrupted by a power loss, and the Hall position cannot
+  // be trusted (see JalouzeeBlinds::setup()).
   bool movement_in_progress;
 
-  float hall_closed;  // "сырое" значение накопленных импульсов при закрытых ламелях
+  float hall_closed;  // "raw" accumulated pulse count with slats closed
   float hall_open;
-  float adc_closed;  // "сырое" значение АЦП при закрытых ламелях
+  float adc_closed;  // "raw" ADC value with slats closed
   float adc_open;
-  float mpu_closed;  // значение sensor'а MPU6050 при закрытых ламелях
+  float mpu_closed;  // MPU6050 sensor value with slats closed
   float mpu_open;
 
-  uint8_t angle_source_mode;  // выбор пользователя: auto/angle/encoder
-  float last_angle_percent;   // последний известный угол наклона, 0..100%
+  uint8_t angle_source_mode;  // user's choice: auto/angle/encoder
+  float last_angle_percent;   // last known tilt angle, 0..100%
 } __attribute__((packed));
 
 }  // namespace jalouzee_blinds

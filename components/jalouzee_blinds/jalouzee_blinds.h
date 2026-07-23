@@ -18,14 +18,14 @@ namespace jalouzee_blinds {
 
 enum CalibrationState : uint8_t {
   CAL_IDLE = 0,
-  CAL_WAIT_CLOSED = 1,  // ждём, что пользователь выставит "закрыто" и нажмёт кнопку повторно
-  CAL_WAIT_OPEN = 2,    // ждём "открыто"
+  CAL_WAIT_CLOSED = 1,  // waiting for the user to set "closed" and press the button again
+  CAL_WAIT_OPEN = 2,    // waiting for "open"
 };
 
 // ---------------------------------------------------------------------------
-// Общая логика: Cover-сущность, состояние калибровки, детекция аварии,
-// пошаговое движение (закрыто->50%->открыто), flash-персистентность.
-// Владеет мотором/датчиками/калибровкой/вложенными сущностями и связывает их.
+// General logic: the Cover entity, calibration state, fault detection,
+// stepped movement (closed->50%->open), flash persistence. Owns the motor/
+// sensors/calibration/nested entities and wires them together.
 // ---------------------------------------------------------------------------
 class JalouzeeBlinds : public cover::Cover, public Component {
  public:
@@ -36,7 +36,7 @@ class JalouzeeBlinds : public cover::Cover, public Component {
 
   cover::CoverTraits get_traits() override;
 
-  // --- сеттеры, вызываемые из codegen (cover.py) ---
+  // --- setters called from codegen (cover.py) ---
   void set_motor_pins(GPIOPin *in1, GPIOPin *in2) { this->motor_.set_pins(in1, in2); }
   void set_hall_encoder_pins(InternalGPIOPin *a, InternalGPIOPin *b) { this->hall_adc_.set_hall_pins(a, b); }
   void set_adc_pin(InternalGPIOPin *pin) { this->hall_adc_.set_adc_pin(pin); }
@@ -44,7 +44,7 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void set_angle_source_mode(uint8_t mode) { this->configured_angle_source_mode_ = mode; }
   void set_fault_timeout(uint32_t seconds) { this->fault_timeout_s_ = seconds; }
 
-  // --- вызовы от вложенных сущностей (кнопки/select/number), см. sub_entities.h ---
+  // --- calls from nested entities (buttons/select/number), see sub_entities.h ---
   void on_calibration_button_pressed();
   void on_cancel_calibration_button_pressed();
   void on_fault_reset_button_pressed();
@@ -54,22 +54,22 @@ class JalouzeeBlinds : public cover::Cover, public Component {
  protected:
   void control(const cover::CoverCall &call) override;
 
-  // --- калибровка ---
+  // --- calibration ---
   void enter_calibration_();
   void cancel_calibration_();
   void capture_calibration_point_(bool is_closed_point);
   void finish_calibration_();
   void set_calibration_message_(const std::string &msg, bool temporary = false);
-  // Публикует "Откалибровано" и per-source диагностические бинарные сенсоры —
-  // вызывать при любом изменении калибровочных данных.
+  // Publishes "Calibrated" and the per-source diagnostic binary sensors —
+  // call on any change to the calibration data.
   void publish_calibration_diagnostics_();
 
-  // --- движение к цели / логика 3 положений ---
+  // --- movement toward the target / 3-position logic ---
   void handle_open_close_request_(bool opening);
   void start_move_to_percent_(float target_percent);
   void handle_movement_();
 
-  // --- авария ---
+  // --- fault ---
   void check_fault_();
   void trigger_fault_();
   void clear_fault_();
@@ -77,13 +77,13 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   // --- flash ---
   void save_to_flash_();
   void load_from_flash_();
-  // Сбрасывает store_.movement_in_progress (если он был true) и сохраняет —
-  // вызывать при ЛЮБОМ штатном завершении движения (явный stop, авария, вход
-  // в калибровку), кроме "достигли цели" в handle_movement_(), которая уже и
-  // так безусловно пишет flash. См. store.h.
+  // Clears store_.movement_in_progress (if it was true) and saves — call on
+  // ANY normal end of movement (explicit stop, fault, entering calibration),
+  // except "target reached" in handle_movement_(), which already
+  // unconditionally writes to flash. See store.h.
   void clear_movement_in_progress_();
 
-  // ------------------------- компоненты -------------------------
+  // ------------------------- components -------------------------
   MotorController motor_;
   MotorSensor hall_adc_;
   MpuSensor mpu_;
@@ -93,7 +93,7 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};
   uint32_t fault_timeout_s_{10};
 
-  // калибровка
+  // calibration
   CalibrationState cal_state_{CAL_IDLE};
   float temp_hall_closed_{0};
   float temp_adc_closed_{0};
@@ -101,27 +101,27 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   uint32_t cal_message_expire_ms_{0};
   bool cal_message_is_temporary_{false};
 
-  // авария
+  // fault
   bool fault_active_{false};
   uint32_t last_angle_change_ms_{0};
   float last_seen_percent_for_fault_{NAN};
 
-  // после потери питания без валидного источника
+  // after a power loss with no valid source
   bool operation_blocked_{false};
-  // Hall не считается надёжным в этой сессии — см. resolve_active_source()/
-  // setup(). В отличие от operation_blocked_ (нет вообще никакого источника —
-  // блокируем управление) может быть true, даже когда MPU6050 доступен как
-  // fallback и управление разрешено — иначе в режиме "encoder" (без
-  // авто-переключения на MPU) resolve_active_source() продолжила бы доверять
-  // недостоверному Hall.
+  // Hall is not considered reliable this session — see
+  // resolve_active_source()/setup(). Unlike operation_blocked_ (no source at
+  // all — block control), this can be true even when MPU6050 is available as
+  // a fallback and control is allowed — otherwise in "encoder" mode (no
+  // auto-switch to MPU) resolve_active_source() would keep trusting the
+  // untrusted Hall.
   bool hall_untrusted_{false};
 
-  // движение
-  bool jog_mode_{false};  // true = ручной jog во время калибровки (без цели/без проверки аварии)
+  // movement
+  bool jog_mode_{false};  // true = manual jog during calibration (no target/no fault check)
   float target_percent_{NAN};
   float current_percent_{0};
-  int8_t current_step_index_{0};  // 0=закрыто, 1=50%, 2=открыто
-  uint32_t last_position_publish_ms_{0};  // throttling publish_state() во время движения — см. handle_movement_()
+  int8_t current_step_index_{0};  // 0=closed, 1=50%, 2=open
+  uint32_t last_position_publish_ms_{0};  // throttles publish_state() during movement — see handle_movement_()
 
   uint32_t last_flash_save_ms_{0};
 
