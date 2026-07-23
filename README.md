@@ -59,9 +59,9 @@ esp32:
 
 external_components:
   - source:
-      type: local
-      path: components
-    components: [jalouzee_blinds]
+      type: git
+      url: https://github.com/shammysha/esphome-jalouzee-blinds/
+    refresh: 1s
 
 i2c:
   sda: GPIO21
