@@ -53,13 +53,14 @@ class Controller {
   // бинарные сенсоры per-source в SubEntities).
   bool is_calibrated(ActiveAngleSource src) const { return this->is_source_calibrated_(src); }
 
-  // hall_untrusted — Hall-энкодер не считается надёжным в этой сессии (обычно
-  // из-за обнаруженного прерванного питанием движения, см.
-  // JalouzeeBlinds::setup()) — общая логика, не калибровочные данные как
-  // таковые, поэтому передаётся параметром. Гасит ТОЛЬКО ветку Hall (ADC —
-  // абсолютный датчик, в этой защите не нуждается) и работает одинаково в
-  // любом режиме (auto/encoder).
-  ActiveAngleSource resolve_active_source(bool hall_untrusted) const;
+  // encoder_untrusted — датчик на быстром валу мотора (Hall либо endless-
+  // потенциометр — они взаимоисключающие, но оба накопительные) не считается
+  // надёжным в этой сессии (обычно из-за обнаруженного прерванного питанием
+  // движения, см. JalouzeeBlinds::setup()) — общая логика, не калибровочные
+  // данные как таковые, поэтому передаётся параметром. Гасит ТОЛЬКО ветку
+  // Hall/ADC (MPU6050 в этой защите не нуждается — абсолютный датчик угла) и
+  // работает одинаково в любом режиме (auto/encoder).
+  ActiveAngleSource resolve_active_source(bool encoder_untrusted) const;
   float read_raw(ActiveAngleSource src) const;
   float raw_to_percent(ActiveAngleSource src, float raw) const;
   // Обратное преобразование raw_to_percent — по калибровочным точкам источника

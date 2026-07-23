@@ -52,16 +52,17 @@ bool Controller::is_source_available_(ActiveAngleSource src) const {
   }
 }
 
-ActiveAngleSource Controller::resolve_active_source(bool hall_untrusted) const {
+ActiveAngleSource Controller::resolve_active_source(bool encoder_untrusted) const {
   uint8_t mode = this->store_->angle_source_mode;
 
-  // hall_untrusted гасит только Hall — ADC абсолютный (текущее напряжение =
-  // текущее положение прямо сейчас) и в этой защите не нуждается. Проверяем
-  // здесь, а не отдельной веткой по режиму — иначе в auto защита не работала
-  // бы вовсе, раз AUTO использует hall_or_adc_active() как fallback.
-  auto hall_or_adc_active = [this, hall_untrusted]() -> ActiveAngleSource {
-    if (!hall_untrusted && this->hall_adc_->has_hall() && this->is_source_calibrated_(ACTIVE_SOURCE_HALL))
-      return ACTIVE_SOURCE_HALL;
+  // encoder_untrusted гасит и Hall, и ADC — оба накопительные датчики на
+  // быстром валу мотора и взаимоисключающие (см. cover.py), так что одного
+  // флага достаточно. Проверяем здесь, а не отдельной веткой по режиму —
+  // иначе в auto защита не работала бы вовсе, раз AUTO использует
+  // hall_or_adc_active() как fallback.
+  auto hall_or_adc_active = [this, encoder_untrusted]() -> ActiveAngleSource {
+    if (encoder_untrusted) return ACTIVE_SOURCE_NONE;
+    if (this->hall_adc_->has_hall() && this->is_source_calibrated_(ACTIVE_SOURCE_HALL)) return ACTIVE_SOURCE_HALL;
     if (this->hall_adc_->has_adc() && this->is_source_calibrated_(ACTIVE_SOURCE_ADC)) return ACTIVE_SOURCE_ADC;
     return ACTIVE_SOURCE_NONE;
   };

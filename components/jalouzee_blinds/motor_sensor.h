@@ -6,10 +6,14 @@
 namespace esphome {
 namespace jalouzee_blinds {
 
-// Датчики, физически расположенные на/у оси мотора: квадратурный Hall-энкодер
-// (7 PPR x передаточное число редуктора) и/или резистор на оси, читаемый через
-// штатный ADC-компонент ESPHome. Оба взаимоисключающие способы определения
-// угла через энкодер/резистор на быстром валу мотора (см. Controller).
+// Датчики, физически расположенные на быстром валу мотора: квадратурный
+// Hall-энкодер (7 PPR x передаточное число редуктора) и/или endless-
+// потенциометр (без механического упора, крутится многооборотно вместе с
+// валом), читаемый через штатный ADC-компонент ESPHome. Оба — взаимоисключающие
+// способы определения угла (см. Controller) и оба ОТНОСИТЕЛЬНЫЕ/накопительные:
+// endless-потенциометр каждый оборот "перескакивает" через границу диапазона
+// АЦП, поэтому read_adc_raw() не возвращает сырое напряжение, а разворачивает
+// эти перескоки в непрерывно накапливаемую величину — см. .cpp.
 class MotorSensor {
  public:
   void set_hall_pins(InternalGPIOPin *a, InternalGPIOPin *b) {
@@ -29,10 +33,15 @@ class MotorSensor {
   // JalouzeeBlinds::setup()) — иначе после ребута счётчик стартует с 0, теряя
   // привязку к калибровочным точкам closed/open. Вызывать ДО setup().
   void seed_hall_pulse_count(int32_t value) { this->hall_pulse_count_ = value; }
+  // То же самое для накопленной позиции endless-потенциометра — см.
+  // seed_hall_pulse_count() и JalouzeeBlinds::setup(). Вызывать ДО setup().
+  void seed_adc_position(float value) { this->adc_unwrapped_ = value; }
 
   void setup();
 
   float read_hall_raw() const { return static_cast<float>(this->hall_pulse_count_); }
+  // Возвращает НЕ сырое напряжение АЦП, а накопленную (развёрнутую через
+  // перескоки оборота) величину — см. класс-комментарий выше и .cpp.
   float read_adc_raw();
 
  protected:
@@ -55,6 +64,10 @@ class MotorSensor {
   // платформы). Не регистрируется в App (нет периодического update()) — читаем
   // значение вручную через sample() когда нужно (см. read_adc_raw()).
   adc::ADCSensor *adc_sensor_{nullptr};
+  // Предыдущий сырой отсчёт (для вычисления delta и детекта перескока через
+  // границу оборота) и сама накопленная развёрнутая позиция — см. read_adc_raw().
+  float adc_last_raw_{0};
+  float adc_unwrapped_{0};
 
   bool has_hall_{false};
   bool has_adc_{false};

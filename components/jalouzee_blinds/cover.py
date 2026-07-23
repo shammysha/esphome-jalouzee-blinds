@@ -7,8 +7,8 @@ from esphome.core import CORE
 
 CODEOWNERS = ["@your-github-handle"]
 # 'adc' подключаем автоматически (используется внутри компонента для чтения
-# резистора на оси мотора через штатный ADC-компонент ESPHome, без
-# необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
+# endless-потенциометра на оси мотора через штатный ADC-компонент ESPHome,
+# без необходимости объявлять отдельную платформу 'sensor: platform: adc' в YAML)
 AUTO_LOAD = [
     "sensor",
     "adc",
@@ -42,7 +42,7 @@ CONF_FAULT_TIMEOUT = "fault_timeout"
 ANGLE_SOURCE_MODES = {
     "auto": 0,       # автоматический выбор: 1) angle (MPU6050)  2) Hall/ADC
     "angle": 1,      # принудительно angle-сенсор (MPU6050)
-    "encoder": 2,    # принудительно Hall-энкодер ИЛИ резистор (что задано в YAML)
+    "encoder": 2,    # принудительно Hall-энкодер ИЛИ endless-потенциометр (что задано в YAML)
 }
 
 MOTOR_SCHEMA = cv.Schema(
@@ -67,13 +67,13 @@ def _validate_encoder(config):
 
     if has_hall and has_adc:
         raise cv.Invalid(
-            "'a'/'b' (датчик Холла) и 'adc' (резистор на оси мотора) взаимоисключающие "
-            "— укажите только один способ определения угла в блоке 'encoder'"
+            "'a'/'b' (датчик Холла) и 'adc' (endless-потенциометр на оси мотора) "
+            "взаимоисключающие — укажите только один способ определения угла в блоке 'encoder'"
         )
     if not has_hall and not has_adc:
         raise cv.Invalid(
             "В блоке 'encoder' нужно указать либо 'a' и 'b' (датчик Холла), "
-            "либо 'adc' (резистор на оси мотора)"
+            "либо 'adc' (endless-потенциометр на оси мотора)"
         )
     return config
 
