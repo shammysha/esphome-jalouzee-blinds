@@ -56,9 +56,9 @@ esp32:
 
 external_components:
   - source:
-      type: local
-      path: components
-    components: [jalouzee_blinds]
+      type: git
+      url: https://github.com/shammysha/esphome-jalouzee-blinds/
+    refresh: 1s
 
 i2c:
   sda: GPIO21
@@ -68,14 +68,13 @@ sensor:
   - platform: mpu6050
     address: 0x68
     accel_x:
-      name: "MPU6050 Accel X"
       id: acc_x
     update_interval: 100ms
 
 cover:
   - platform: jalouzee_blinds
     id: blinds
-    name: "Жалюзи гостиная"
+    name: "Jalouzee"
     motor:
       in1: GPIO25
       in2: GPIO26
