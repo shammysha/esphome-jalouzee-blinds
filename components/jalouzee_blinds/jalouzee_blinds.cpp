@@ -22,6 +22,10 @@ static const float STEP_TARGET_EPSILON = 0.5f;    // % — попадание в
 // store_.movement_in_progress (см. start_move_to_percent_/setup()), а не через
 // учащённую запись позиции по таймеру.
 static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 300000;  // 5 мин
+// publish_state() во время движения не чаще этого интервала — без throttling
+// вызывался бы на каждой итерации loop() (сотни-тысячи раз в секунду), забивая
+// API-соединение и мешая обработке входящих команд (см. обсуждение лагов).
+static const uint32_t POSITION_PUBLISH_INTERVAL_MS = 250;
 
 // =====================================================================
 // setup / dump_config
@@ -463,8 +467,14 @@ void JalouzeeBlinds::handle_movement_() {
       this->sub_entities_.set_calibrated(this->angle_cal_.is_any_calibrated());
     }
   } else {
-    this->position = this->current_percent_ / 100.0f;
-    this->publish_state();
+    // Throttled — без этого publish_state() уходил бы на каждой итерации
+    // loop() во время движения, забивая API-соединение (см. POSITION_PUBLISH_INTERVAL_MS).
+    uint32_t now = millis();
+    if (now - this->last_position_publish_ms_ >= POSITION_PUBLISH_INTERVAL_MS) {
+      this->last_position_publish_ms_ = now;
+      this->position = this->current_percent_ / 100.0f;
+      this->publish_state();
+    }
   }
 }
 

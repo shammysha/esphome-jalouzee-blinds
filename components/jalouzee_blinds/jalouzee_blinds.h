@@ -111,6 +111,7 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   float target_percent_{NAN};
   float current_percent_{0};
   int8_t current_step_index_{0};  // 0=закрыто, 1=50%, 2=открыто
+  uint32_t last_position_publish_ms_{0};  // throttling publish_state() во время движения — см. handle_movement_()
 
   uint32_t last_flash_save_ms_{0};
 
