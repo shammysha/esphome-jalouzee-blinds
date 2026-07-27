@@ -110,6 +110,14 @@ void JalouzeeBlinds::setup() {
   this->position = this->current_percent_ / 100.0f;
   this->tilt = this->position;
   this->publish_state();
+
+#ifdef USE_ESP32
+  // After position/tilt above, so the first STATUS packet (see
+  // ble_relay.cpp) reflects the real restored position rather than 0.
+  if (this->ble_relay_enabled_) {
+    this->ble_relay_.setup(this);
+  }
+#endif
 }
 
 void JalouzeeBlinds::dump_config() {
@@ -188,6 +196,12 @@ void JalouzeeBlinds::loop() {
       this->last_flash_save_ms_ = now;
     }
   }
+
+#ifdef USE_ESP32
+  if (this->ble_relay_enabled_) {
+    this->ble_relay_.loop();
+  }
+#endif
 }
 
 // =====================================================================
@@ -251,6 +265,15 @@ void JalouzeeBlinds::finish_calibration_() {
 
   this->operation_blocked_ = false;
   this->hall_untrusted_ = false;
+  // A fault from before this calibration run (e.g. the stall protection
+  // that stopped an earlier runaway movement) must not keep blocking
+  // control() after a successful calibration -- found on real hardware
+  // (2026-07-26): calibration itself bypasses fault_active_ entirely (see
+  // control()'s cal_state_ != CAL_IDLE branch), so it "worked" while every
+  // ordinary open/close/set_position afterward kept hitting "Blind control
+  // is blocked: a fault is active" -- clear_fault_() was never called here
+  // before, so a stale fault outlived the very calibration meant to fix it.
+  this->clear_fault_();
   this->cal_state_ = CAL_IDLE;
   this->jog_mode_ = false;
   this->motor_.stop();
@@ -325,6 +348,11 @@ void JalouzeeBlinds::trigger_fault_() {
   this->target_percent_ = NAN;
   this->clear_movement_in_progress_();
   this->sub_entities_.set_fault(true);
+#ifdef USE_ESP32
+  if (this->ble_relay_enabled_) {
+    this->ble_relay_.notify_movement_stopped();
+  }
+#endif
 }
 
 void JalouzeeBlinds::on_fault_reset_button_pressed() {
@@ -398,6 +426,11 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
     this->motor_.stop();
     this->target_percent_ = NAN;
     this->clear_movement_in_progress_();
+#ifdef USE_ESP32
+    if (this->ble_relay_enabled_) {
+      this->ble_relay_.notify_movement_stopped();
+    }
+#endif
     return;
   }
 
@@ -487,6 +520,12 @@ void JalouzeeBlinds::handle_movement_() {
     this->position = this->current_percent_ / 100.0f;
     this->tilt = this->position;
     this->publish_state();
+
+#ifdef USE_ESP32
+    if (this->ble_relay_enabled_) {
+      this->ble_relay_.notify_movement_stopped();
+    }
+#endif
 
     // We actually reached the end of travel — opportunistic auto-
     // calibration of any available but not-yet-calibrated sources (see

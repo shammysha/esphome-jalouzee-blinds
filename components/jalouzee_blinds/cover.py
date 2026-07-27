@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import cover, sensor, adc
+from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
@@ -37,6 +38,24 @@ CONF_ANGLE = "angle"
 
 CONF_POSITION = "position"
 CONF_FAULT_TIMEOUT = "fault_timeout"
+
+# Physical BLE remote over a custom NimBLE advertising-relay protocol (see
+# ble_relay.h/.cpp; not Bluetooth SIG BLE Mesh -- see
+# docs/plans/vivid-noodling-gray.md for why) — opt-in since it pulls in
+# NimBLE (CONFIG_BT_ENABLED etc.), which every existing config shouldn't
+# have to pay for.
+CONF_BLE_RELAY = "ble_relay"
+# Shared fleet-wide NetKey (see docs/plans/vivid-noodling-gray.md's "Модель
+# ключей и безопасность") -- 16 raw bytes, given in YAML as a 32-char hex
+# string, meant to come from `!secret` like ota_pass/wifi_pass already do in
+# this project (see config-template.yaml). Optional: this is the path for
+# builds where whoever flashes it has ESPHome access (this maintainer's own
+# installs). Left unset, the blind boots unprovisioned and gets its NetKey
+# later over BLE (provision_chr_uuid_ in ble_relay.cpp) -- the path for a
+# real customer with no ESPHome access, see "Provisioning NetKey без
+# ESPHome" in the plan doc. No unsafe default either way: there's no
+# placeholder key compiled in when this is left unset.
+CONF_NET_KEY = "net_key"
 
 # --- angle source mode options (see the "Angle Source" select) -------------
 ANGLE_SOURCE_MODES = {
@@ -94,6 +113,16 @@ ENCODER_SCHEMA = cv.All(
 )
 
 
+def _validate_net_key(value):
+    value = cv.string_strict(value)
+    if len(value) != 32 or not all(c in "0123456789abcdefABCDEF" for c in value):
+        raise cv.Invalid(
+            "net_key must be exactly 32 hex characters (16 bytes), e.g. from "
+            "`python3 -c \"import secrets; print(secrets.token_hex(16))\"`"
+        )
+    return value.lower()
+
+
 def _validate_root(config):
     if CONF_ENCODER not in config and CONF_ANGLE not in config:
         raise cv.Invalid(
@@ -104,6 +133,8 @@ def _validate_root(config):
         raise cv.Invalid("position: angle is set, but the 'angle' parameter is missing")
     if mode == "encoder" and CONF_ENCODER not in config:
         raise cv.Invalid("position: encoder is set, but the 'encoder' block is missing")
+    if config[CONF_BLE_RELAY] and not CORE.is_esp32:
+        raise cv.Invalid("'ble_relay' requires an ESP32 (no BLE on this platform)")
     return config
 
 
@@ -127,6 +158,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_FAULT_TIMEOUT, default="10s"): cv.All(
                 cv.positive_time_period_seconds, cv.Range(min=cv.TimePeriod(seconds=1))
             ),
+            cv.Optional(CONF_BLE_RELAY, default=False): cv.boolean,
+            cv.Optional(CONF_NET_KEY): _validate_net_key,
         }
     )
     .extend(cv.COMPONENT_SCHEMA),
@@ -184,3 +217,23 @@ async def to_code(config):
 
     cg.add(var.set_angle_source_mode(ANGLE_SOURCE_MODES[config[CONF_POSITION]]))
     cg.add(var.set_fault_timeout(config[CONF_FAULT_TIMEOUT]))
+
+    if config[CONF_BLE_RELAY]:
+        cg.add(var.set_ble_relay_enabled(True))
+
+        if CONF_NET_KEY in config:
+            net_key_hex = config[CONF_NET_KEY]
+            net_key_bytes = ", ".join(f"0x{net_key_hex[i:i + 2]}" for i in range(0, 32, 2))
+            cg.add(var.set_net_key(cg.RawExpression(f"std::array<uint8_t, 16>{{{net_key_bytes}}}")))
+        # else: no net_key in YAML -- factory firmware, boots unprovisioned
+        # and gets its NetKey later over BLE (see ble_relay.cpp's
+        # provision_chr_uuid_ and docs/plans/vivid-noodling-gray.md).
+
+        # NimBLE host -- lighter-weight than Bluedroid, used directly (no
+        # esp_ble_mesh, see ble_relay.h/.cpp and
+        # docs/plans/vivid-noodling-gray.md for why). Mutually exclusive with
+        # ESPHome's own esp32_ble component (which hardcodes Bluedroid) --
+        # fine here since this project doesn't use esp32_ble.
+        add_idf_sdkconfig_option("CONFIG_BT_ENABLED", True)
+        add_idf_sdkconfig_option("CONFIG_BT_NIMBLE_ENABLED", True)
+        add_idf_sdkconfig_option("CONFIG_BT_BLUEDROID_ENABLED", False)

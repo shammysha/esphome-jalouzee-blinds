@@ -12,6 +12,7 @@
 #include "mpu_sensor.h"
 #include "controller.h"
 #include "sub_entities.h"
+#include "ble_relay.h"
 
 namespace esphome {
 namespace jalouzee_blinds {
@@ -43,6 +44,10 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void set_mpu6050_sensor(sensor::Sensor *sens) { this->mpu_.set_sensor(sens); }
   void set_angle_source_mode(uint8_t mode) { this->configured_angle_source_mode_ = mode; }
   void set_fault_timeout(uint32_t seconds) { this->fault_timeout_s_ = seconds; }
+#ifdef USE_ESP32
+  void set_ble_relay_enabled(bool enabled) { this->ble_relay_enabled_ = enabled; }
+  void set_net_key(std::array<uint8_t, 16> key) { this->ble_relay_.set_net_key(key); }
+#endif
 
   // --- calls from nested entities (buttons/select/number), see sub_entities.h ---
   void on_calibration_button_pressed();
@@ -50,6 +55,31 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void on_fault_reset_button_pressed();
   void on_angle_source_select_changed(const std::string &value);
   void on_fault_timeout_changed(float seconds);
+
+#ifdef USE_ESP32
+  // Read by ble_relay.cpp's broadcast_own_status_() -- an uncalibrated
+  // blind's `position` is meaningless (never actually measured, just
+  // whatever it defaulted/was last saved to), so it must not be flooded
+  // to the fleet as if it were a real reading. See docs/plans/
+  // vivid-noodling-gray.md's position-collection design.
+  bool is_calibrated() const { return this->angle_cal_.is_any_calibrated(); }
+  // Also read by broadcast_own_status_() -- lets the app tell "this
+  // broadcast reflects a blind actually at rest" apart from "this is just
+  // the routine periodic tick firing while it happens to still be
+  // mid-movement" (the periodic broadcast doesn't know or care whether
+  // anything is moving, it fires on a plain timer). See main.dart's
+  // _isSettled, which only trusts a broadcast as confirming settlement if
+  // this is false. Only whether it's moving at all matters here, not which
+  // direction.
+  bool is_moving() const { return this->motor_.direction() != MOTOR_STOP; }
+  // Also read by broadcast_own_status_() -- lets the app show a warning
+  // icon for a blind whose control() is currently blocked by
+  // trigger_fault_() (see check_fault_()'s doc comment), and offer to clear
+  // it (COVER_CMD_RESET_FAULT -> on_fault_reset_button_pressed()) without
+  // the user having no way to even find out why a blind stopped
+  // responding, short of the HA-only fault binary sensor.
+  bool is_fault_active() const { return this->fault_active_; }
+#endif
 
  protected:
   void control(const cover::CoverCall &call) override;
@@ -89,6 +119,10 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   MpuSensor mpu_;
   Controller angle_cal_;
   SubEntities sub_entities_;
+#ifdef USE_ESP32
+  BleRelay ble_relay_;
+  bool ble_relay_enabled_{false};
+#endif
 
   uint8_t configured_angle_source_mode_{ANGLE_SOURCE_AUTO};
   uint32_t fault_timeout_s_{10};
