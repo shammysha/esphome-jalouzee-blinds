@@ -17,9 +17,15 @@ void FaultResetButton::press_action() { this->parent_->on_fault_reset_button_pre
 void AngleSourceSelect::control(const std::string &value) { this->parent_->on_angle_source_select_changed(value); }
 void FaultTimeoutNumber::control(float value) { this->parent_->on_fault_timeout_changed(value); }
 
-void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bool has_hall, bool has_adc,
-                         bool has_mpu, const char *initial_angle_source, uint32_t initial_fault_timeout_s) {
-  this->entity_name_storage_.reserve(10);
+void SubEntities::setup(JalouzeeBlinds *parent, bool has_hall, bool has_adc, bool has_mpu,
+                         const char *initial_angle_source, uint32_t initial_fault_timeout_s) {
+  // 8 fixed entities + up to 2 conditional per-source diagnostics (hall/adc
+  // are mutually exclusive, see _validate_encoder() in cover.py, so it's
+  // never both) + 1 for the calibration-step sensor = 11 max. Must match
+  // exactly (or exceed) the real number of make_name() calls below — a
+  // vector reallocation here would invalidate the c_str() pointers already
+  // handed to entities.
+  this->entity_name_storage_.reserve(11);
   auto make_name = [this](std::string name) -> const char * {
     this->entity_name_storage_.push_back(std::move(name));
     return this->entity_name_storage_.back().c_str();
@@ -27,18 +33,18 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
 
   this->calibration_button_ = new CalibrationButton();
   this->calibration_button_->set_parent(parent);
-  App.register_button(this->calibration_button_, make_name(base_name + " Calibration"), 0, 0);
+  App.register_button(this->calibration_button_, make_name("Calibration"), 0, 0);
 
   this->cancel_calibration_button_ = new CancelCalibrationButton();
   this->cancel_calibration_button_->set_parent(parent);
   // Always visible in HA — ESPHome doesn't support dynamically disabling/
   // hiding a button at runtime. Pressing it outside calibration is safely
   // ignored in on_cancel_calibration_button_pressed().
-  App.register_button(this->cancel_calibration_button_, make_name(base_name + " Cancel Calibration"), 0, 0);
+  App.register_button(this->cancel_calibration_button_, make_name("Cancel Calibration"), 0, 0);
 
   this->fault_reset_button_ = new FaultResetButton();
   this->fault_reset_button_->set_parent(parent);
-  App.register_button(this->fault_reset_button_, make_name(base_name + " Reset Fault"), 0, 0);
+  App.register_button(this->fault_reset_button_, make_name("Reset Fault"), 0, 0);
 
   this->angle_source_select_ = new AngleSourceSelect();
   this->angle_source_select_->set_parent(parent);
@@ -50,7 +56,7 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
     if (has_hall || has_adc) options.push_back("encoder");
     this->angle_source_select_->traits.set_options(options);
   }
-  App.register_select(this->angle_source_select_, make_name(base_name + " Angle Source"), 0, 0);
+  App.register_select(this->angle_source_select_, make_name("Angle Source"), 0, 0);
   this->angle_source_select_->publish_state(initial_angle_source);
 
   this->fault_timeout_number_ = new FaultTimeoutNumber();
@@ -58,17 +64,21 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
   this->fault_timeout_number_->traits.set_min_value(1);
   this->fault_timeout_number_->traits.set_max_value(300);
   this->fault_timeout_number_->traits.set_step(1);
-  App.register_number(this->fault_timeout_number_, make_name(base_name + " Fault Timeout (s)"), 0, 0);
+  App.register_number(this->fault_timeout_number_, make_name("Fault Timeout (s)"), 0, 0);
   this->fault_timeout_number_->publish_state(initial_fault_timeout_s);
 
   this->calibration_text_sensor_ = new text_sensor::TextSensor();
-  App.register_text_sensor(this->calibration_text_sensor_, make_name(base_name + " Calibration Message"), 0, 0);
+  App.register_text_sensor(this->calibration_text_sensor_, make_name("Calibration Message"), 0, 0);
+
+  this->calibration_step_sensor_ = new sensor::Sensor();
+  App.register_sensor(this->calibration_step_sensor_, make_name("Calibration Step"), 0, 0);
+  this->calibration_step_sensor_->publish_state(0);
 
   this->calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name(base_name + " Calibrated"), 0, 0);
+  App.register_binary_sensor(this->calibrated_binary_sensor_, make_name("Calibrated"), 0, 0);
 
   this->fault_binary_sensor_ = new binary_sensor::BinarySensor();
-  App.register_binary_sensor(this->fault_binary_sensor_, make_name(base_name + " Fault"), 0, 0);
+  App.register_binary_sensor(this->fault_binary_sensor_, make_name("Fault"), 0, 0);
   this->fault_binary_sensor_->publish_state(false);
 
   // Calibration diagnostics for each CONFIGURED source (see cover.py — the
@@ -76,17 +86,17 @@ void SubEntities::setup(JalouzeeBlinds *parent, const std::string &base_name, bo
   // platform_counts).
   if (has_hall) {
     this->hall_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->hall_calibrated_binary_sensor_, make_name(base_name + " Hall Calibrated"), 0,
+    App.register_binary_sensor(this->hall_calibrated_binary_sensor_, make_name("Hall Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
   if (has_adc) {
     this->adc_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->adc_calibrated_binary_sensor_, make_name(base_name + " ADC Calibrated"), 0,
+    App.register_binary_sensor(this->adc_calibrated_binary_sensor_, make_name("ADC Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
   if (has_mpu) {
     this->angle_calibrated_binary_sensor_ = new binary_sensor::BinarySensor();
-    App.register_binary_sensor(this->angle_calibrated_binary_sensor_, make_name(base_name + " Angle Calibrated"), 0,
+    App.register_binary_sensor(this->angle_calibrated_binary_sensor_, make_name("Angle Calibrated"), 0,
                                 DIAGNOSTIC_ENTITY_FIELDS);
   }
 }

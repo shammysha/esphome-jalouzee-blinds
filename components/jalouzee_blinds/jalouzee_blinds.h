@@ -99,6 +99,14 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   void start_move_to_percent_(float target_percent);
   void handle_movement_();
 
+  // --- motor wiring polarity auto-detection (in1/in2 swapped at install) ---
+  // Only meaningful during calibration jog — see the .cpp for the algorithm.
+  ActiveAngleSource polarity_check_source_() const;
+  void begin_polarity_check_segment_(MotorDirection direction);
+  void end_polarity_check_segment_();
+  void detect_motor_polarity_();
+  void save_motor_polarity_();
+
   // --- fault ---
   void check_fault_();
   void trigger_fault_();
@@ -154,10 +162,29 @@ class JalouzeeBlinds : public cover::Cover, public Component {
   bool jog_mode_{false};  // true = manual jog during calibration (no target/no fault check)
   float target_percent_{NAN};
   float current_percent_{0};
+  // current_percent_, snapped for HA/app reporting only (never affects
+  // current_percent_ itself) — see STEP_SNAP_BAND's doc comment in the .cpp.
+  float reported_percent_() const;
+  // True when the active angle source is inherently noisy (MPU6050/ADC) as
+  // opposed to Hall (exact pulse count) — drives both reported_percent_()
+  // and movement_epsilon_().
+  bool is_angle_source_noisy_() const;
+  // Tolerance for move-there/have-we-arrived decisions — see its doc
+  // comment in the .cpp.
+  float movement_epsilon_() const;
   int8_t current_step_index_{0};  // 0=closed, 1=50%, 2=open
   uint32_t last_position_publish_ms_{0};  // throttles publish_state() during movement — see handle_movement_()
 
   uint32_t last_flash_save_ms_{0};
+
+  // motor wiring polarity auto-detection — only tracked/used during
+  // calibration jog, see detect_motor_polarity_() in the .cpp
+  ActiveAngleSource dir_check_source_{ACTIVE_SOURCE_NONE};
+  MotorDirection dir_check_direction_{MOTOR_STOP};
+  float dir_check_raw_at_start_{NAN};
+  float net_raw_while_opening_{0};
+  float net_raw_while_closing_{0};
+  ESPPreferenceObject motor_polarity_pref_;
 
   JalouzeeBlindsStore store_{};
   ESPPreferenceObject pref_;

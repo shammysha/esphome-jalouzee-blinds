@@ -15,7 +15,58 @@ static const char *const MSG_WAIT_OPEN =
 static const char *const MSG_DONE = "Calibration complete";
 
 static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — minimum angle change to not count as "stuck"
-static const float STEP_TARGET_EPSILON = 0.5f;    // % — reaching the target position
+// Analog angle sources (MPU6050 accelerometer, and equally the potentiometer
+// on the motor shaft — both are continuous, noisy analog reads, unlike the
+// discrete Hall pulse count, which is an exact quadrature edge count with no
+// comparable noise floor) never settle exactly on a target percent — noise/
+// inertia/slack keeps the reading drifting a few percent even once the motor
+// has genuinely stopped. A tight tolerance would leave the reported position
+// jittering forever (47%, 52%, 49%...) instead of resting on a clean number,
+// AND would make HA (or an automation) re-sending the same exact target
+// against an already-settled-but-not-exact blind look like "not there yet"
+// and jerk the motor to chase a value the sensor can never precisely
+// confirm. This is a property of the SENSOR, not of any particular target
+// value — see is_angle_source_noisy_(), used by both reported_percent_()
+// (what HA/the app see) and movement_epsilon_() (the actual move-there/
+// have-we-arrived control decisions in start_move_to_percent_()/
+// handle_movement_()). A precise arbitrary tilt-slider position is only
+// achievable when the active source is Hall — with MPU/ADC active, nothing
+// can be positioned more precisely than the sensor's own noise floor anyway,
+// so capping ALL movement decisions at that floor (not just ones near a
+// fixed step) is honest, not a regression.
+//
+// Deliberately NOT applied to check_fault_()'s stall detection (that
+// compares consecutive raw readings against FAULT_ANGLE_EPSILON, not
+// against a target) — a blind resting inside the band is still expected to
+// show real sensor noise moment-to-moment, and check_fault_() only cares
+// whether it's changing at all while the motor is on.
+//
+// reported_percent_() additionally snaps the two hard endpoints (0/100%),
+// but ONLY in the overshoot direction (below 0, or above 100) — unlike the
+// mid-travel 50% step, 0/100% are real mechanical hard stops, so a reading
+// beyond one of them can only be sensor noise/inertia after hitting the
+// stop, never a genuine intermediate position. A reading like 3% or 97% is
+// still real position information (the blind hasn't fully reached the stop
+// yet) and must NOT be snapped away — only 45-55% (no hard stop, genuine
+// ±5% mechanical slack either side) gets the full two-sided band.
+//
+// First attempt (2026-07-27) snapped only current_percent_ inside loop(),
+// and only around the 50% step — found on real hardware to (a) leave
+// setup()'s reboot-time republish and handle_movement_()'s move-reached
+// publish both still showing the raw, unsnapped value (neither goes through
+// loop()'s per-tick recompute), and (b) not stop the physical jitter at
+// all, since snapping only the *report* does nothing about the *control*
+// logic that decides whether the blind still needs to move. Second attempt
+// (still 2026-07-27) fixed both gaps but gated the wide tolerance on
+// "target is near one of the three fixed steps" rather than on which sensor
+// is active, and used a symmetric band at 0/100% — replaced by this version
+// per user feedback: the real criterion is sensor noise, not target
+// position, and only the 50% step has a genuine two-sided reason to be
+// treated as an ambiguous range.
+static const float STEP_SNAP_BAND = 5.0f;  // % — noisy-source tolerance, everywhere
+// Tolerance when the active source is Hall (no noise problem) — a precise
+// arbitrary tilt-slider position is honored down to this resolution.
+static const float STEP_TARGET_EPSILON = 0.5f;    // % — reaching a target position (Hall only)
 // We write rarely while idle — manual intervention isn't expected in this
 // project, so position drift can only accumulate between visits, not mid-
 // movement. Protection against a power loss MID-movement is handled
@@ -27,6 +78,34 @@ static const uint32_t FLASH_SAVE_MIN_INTERVAL_MS = 300000;  // 5 min
 // thousands of times per second), flooding the API connection and
 // interfering with incoming commands (see the lag discussion).
 static const uint32_t POSITION_PUBLISH_INTERVAL_MS = 1000;
+
+static const float FIXED_STEPS[3] = {0.0f, 50.0f, 100.0f};
+
+bool JalouzeeBlinds::is_angle_source_noisy_() const {
+  ActiveAngleSource src = this->angle_cal_.resolve_active_source(this->hall_untrusted_);
+  return src == ACTIVE_SOURCE_MPU6050 || src == ACTIVE_SOURCE_ADC;
+}
+
+// The tolerance to use when comparing a percent value against `target` for
+// move/reached decisions — wide (STEP_SNAP_BAND) whenever the active source
+// is inherently noisy (MPU/ADC), tight (STEP_TARGET_EPSILON) for Hall. See
+// STEP_SNAP_BAND's doc comment above — this is a property of the sensor,
+// not of the specific target value.
+float JalouzeeBlinds::movement_epsilon_() const {
+  return this->is_angle_source_noisy_() ? STEP_SNAP_BAND : STEP_TARGET_EPSILON;
+}
+
+float JalouzeeBlinds::reported_percent_() const {
+  if (!this->is_angle_source_noisy_()) return this->current_percent_;
+  float pct = this->current_percent_;
+  if (fabsf(pct - 50.0f) <= STEP_SNAP_BAND) return 50.0f;
+  // 0/100% are real mechanical hard stops — only snap in the overshoot
+  // direction (past the stop), never toward it, since anything short of the
+  // stop is still genuine position, not noise. See the doc comment above.
+  if (pct <= 0.0f && pct >= -STEP_SNAP_BAND) return 0.0f;
+  if (pct >= 100.0f && pct <= 100.0f + STEP_SNAP_BAND) return 100.0f;
+  return pct;
+}
 
 // =====================================================================
 // setup / dump_config
@@ -41,8 +120,17 @@ void JalouzeeBlinds::setup() {
   {
     char object_id_buf[OBJECT_ID_MAX_LEN];
     size_t object_id_len = this->write_object_id_to(object_id_buf, sizeof(object_id_buf));
+    std::string object_id_str(object_id_buf, object_id_len);
     this->pref_ = global_preferences->make_preference<JalouzeeBlindsStore>(
-        fnv1_hash("jalouzee_blinds_" + std::string(object_id_buf, object_id_len)));
+        fnv1_hash("jalouzee_blinds_" + object_id_str));
+    // Separate preference object — see MotorPolarityStore's doc comment in
+    // store.h for why this isn't just a new field on JalouzeeBlindsStore.
+    this->motor_polarity_pref_ = global_preferences->make_preference<MotorPolarityStore>(
+        fnv1_hash("jalouzee_blinds_motor_polarity_" + object_id_str));
+    MotorPolarityStore mp{};
+    if (this->motor_polarity_pref_.load(&mp)) {
+      this->motor_.set_direction_inverted(mp.inverted);
+    }
   }
   this->load_from_flash_();
 
@@ -101,13 +189,13 @@ void JalouzeeBlinds::setup() {
     const char *initial_mode = "auto";
     if (this->store_.angle_source_mode == ANGLE_SOURCE_MPU6050) initial_mode = "angle";
     else if (this->store_.angle_source_mode == ANGLE_SOURCE_ENCODER) initial_mode = "encoder";
-    this->sub_entities_.setup(this, this->get_name(), this->hall_adc_.has_hall(), this->hall_adc_.has_adc(),
-                               this->mpu_.has_mpu(), initial_mode, this->fault_timeout_s_);
+    this->sub_entities_.setup(this, this->hall_adc_.has_hall(), this->hall_adc_.has_adc(), this->mpu_.has_mpu(),
+                               initial_mode, this->fault_timeout_s_);
   }
   this->publish_calibration_diagnostics_();
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
 
-  this->position = this->current_percent_ / 100.0f;
+  this->position = this->reported_percent_() / 100.0f;
   this->tilt = this->position;
   this->publish_state();
 
@@ -213,11 +301,14 @@ void JalouzeeBlinds::on_calibration_button_pressed() {
       this->enter_calibration_();
       break;
     case CAL_WAIT_CLOSED:
+      this->end_polarity_check_segment_();
       this->capture_calibration_point_(true);
       this->cal_state_ = CAL_WAIT_OPEN;
+      this->sub_entities_.set_calibration_step(this->cal_state_);
       this->set_calibration_message_(MSG_WAIT_OPEN);
       break;
     case CAL_WAIT_OPEN:
+      this->end_polarity_check_segment_();
       this->capture_calibration_point_(false);
       this->finish_calibration_();
       break;
@@ -231,7 +322,15 @@ void JalouzeeBlinds::enter_calibration_() {
   this->clear_movement_in_progress_();
   this->jog_mode_ = true;
   this->cal_state_ = CAL_WAIT_CLOSED;
+  this->sub_entities_.set_calibration_step(this->cal_state_);
   this->set_calibration_message_(MSG_WAIT_CLOSED);
+  // Reset motor-polarity detection for this session — see
+  // detect_motor_polarity_()'s doc comment.
+  this->dir_check_source_ = this->polarity_check_source_();
+  this->dir_check_direction_ = MOTOR_STOP;
+  this->dir_check_raw_at_start_ = NAN;
+  this->net_raw_while_opening_ = 0;
+  this->net_raw_while_closing_ = 0;
   // 50% keeps both arrows (up/down) active in HA during calibration — the
   // real position isn't calibrated yet; we report it back in finish/cancel.
   this->position = 0.5f;
@@ -262,6 +361,7 @@ void JalouzeeBlinds::finish_calibration_() {
   if (this->mpu_.has_mpu()) {
     this->angle_cal_.try_finish_calibration(ACTIVE_SOURCE_MPU6050, this->temp_mpu_closed_, this->mpu_.read_raw());
   }
+  this->detect_motor_polarity_();
 
   this->operation_blocked_ = false;
   this->hall_untrusted_ = false;
@@ -275,13 +375,14 @@ void JalouzeeBlinds::finish_calibration_() {
   // before, so a stale fault outlived the very calibration meant to fix it.
   this->clear_fault_();
   this->cal_state_ = CAL_IDLE;
+  this->sub_entities_.set_calibration_step(this->cal_state_);
   this->jog_mode_ = false;
   this->motor_.stop();
 
   // the "open" point was just captured — the current physical position IS that point
   this->current_percent_ = 100.0f;
   this->store_.last_angle_percent = this->current_percent_;
-  this->position = this->current_percent_ / 100.0f;
+  this->position = this->reported_percent_() / 100.0f;
   this->tilt = this->position;
   this->publish_state();
 
@@ -300,11 +401,12 @@ void JalouzeeBlinds::on_cancel_calibration_button_pressed() {
 void JalouzeeBlinds::cancel_calibration_() {
   ESP_LOGI(TAG, "Calibration cancelled by the user");
   this->cal_state_ = CAL_IDLE;
+  this->sub_entities_.set_calibration_step(this->cal_state_);
   this->jog_mode_ = false;
   this->motor_.stop();
   this->set_calibration_message_(MSG_ENTER_CALIBRATION);
   // restore the real (last known) position instead of the forced 50%
-  this->position = this->current_percent_ / 100.0f;
+  this->position = this->reported_percent_() / 100.0f;
   this->tilt = this->position;
   this->publish_state();
 }
@@ -397,11 +499,19 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
     // In calibration mode: open/close act as a manual "up/down" jog, stop
     // stops the motor. The calibration button captures the points.
     if (call.get_stop()) {
+      this->end_polarity_check_segment_();
       this->motor_.stop();
       return;
     }
     if (call.get_position().has_value()) {
       float pos = *call.get_position();
+      MotorDirection requested = (pos >= 0.5f) ? MOTOR_OPENING : MOTOR_CLOSING;
+      if (requested != this->motor_.direction()) {
+        // See detect_motor_polarity_() -- close out whatever direction was
+        // running before switching, so its raw delta gets counted.
+        this->end_polarity_check_segment_();
+        this->begin_polarity_check_segment_(requested);
+      }
       if (pos >= 0.5f) this->motor_.open();
       else this->motor_.close();
       return;
@@ -464,7 +574,6 @@ void JalouzeeBlinds::control(const cover::CoverCall &call) {
 }
 
 void JalouzeeBlinds::handle_open_close_request_(bool opening) {
-  static const float STEPS[3] = {0.0f, 50.0f, 100.0f};
   int8_t next = this->current_step_index_;
   if (opening) {
     next = (next < 2) ? next + 1 : 2;
@@ -472,7 +581,7 @@ void JalouzeeBlinds::handle_open_close_request_(bool opening) {
     next = (next > 0) ? next - 1 : 0;
   }
   this->current_step_index_ = next;
-  this->start_move_to_percent_(STEPS[next]);
+  this->start_move_to_percent_(FIXED_STEPS[next]);
 }
 
 void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
@@ -480,9 +589,10 @@ void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
   this->last_angle_change_ms_ = millis();
   this->last_seen_percent_for_fault_ = NAN;
 
-  if (target_percent > this->current_percent_ + STEP_TARGET_EPSILON) {
+  const float epsilon = this->movement_epsilon_();
+  if (target_percent > this->current_percent_ + epsilon) {
     this->motor_.open();
-  } else if (target_percent < this->current_percent_ - STEP_TARGET_EPSILON) {
+  } else if (target_percent < this->current_percent_ - epsilon) {
     this->motor_.close();
   } else {
     this->motor_.stop();
@@ -501,12 +611,13 @@ void JalouzeeBlinds::start_move_to_percent_(float target_percent) {
 void JalouzeeBlinds::handle_movement_() {
   if (std::isnan(this->target_percent_)) return;
 
+  const float epsilon = this->movement_epsilon_();
   bool reached = false;
   if (this->motor_.direction() == MOTOR_OPENING &&
-      this->current_percent_ >= this->target_percent_ - STEP_TARGET_EPSILON) {
+      this->current_percent_ >= this->target_percent_ - epsilon) {
     reached = true;
   } else if (this->motor_.direction() == MOTOR_CLOSING &&
-             this->current_percent_ <= this->target_percent_ + STEP_TARGET_EPSILON) {
+             this->current_percent_ <= this->target_percent_ + epsilon) {
     reached = true;
   }
 
@@ -517,7 +628,7 @@ void JalouzeeBlinds::handle_movement_() {
     this->store_.movement_in_progress = false;
     this->save_to_flash_();
     this->last_flash_save_ms_ = millis();
-    this->position = this->current_percent_ / 100.0f;
+    this->position = this->reported_percent_() / 100.0f;
     this->tilt = this->position;
     this->publish_state();
 
@@ -530,10 +641,14 @@ void JalouzeeBlinds::handle_movement_() {
     // We actually reached the end of travel — opportunistic auto-
     // calibration of any available but not-yet-calibrated sources (see
     // Controller).
+    // Use the same wide band as the "reached" check above (not the tight
+    // STEP_TARGET_EPSILON) — handle_movement_() may have just stopped the
+    // motor anywhere inside that band around 0/100, and that's exactly the
+    // condition under which we consider the blind "at" that endpoint.
     bool auto_calibrated;
-    if (this->current_percent_ <= STEP_TARGET_EPSILON) {
+    if (this->current_percent_ <= STEP_SNAP_BAND) {
       auto_calibrated = this->angle_cal_.try_auto_calibrate_at_endpoint(true);
-    } else if (this->current_percent_ >= 100.0f - STEP_TARGET_EPSILON) {
+    } else if (this->current_percent_ >= 100.0f - STEP_SNAP_BAND) {
       auto_calibrated = this->angle_cal_.try_auto_calibrate_at_endpoint(false);
     } else {
       auto_calibrated = false;
@@ -549,11 +664,113 @@ void JalouzeeBlinds::handle_movement_() {
     uint32_t now = millis();
     if (now - this->last_position_publish_ms_ >= POSITION_PUBLISH_INTERVAL_MS) {
       this->last_position_publish_ms_ = now;
-      this->position = this->current_percent_ / 100.0f;
+      this->position = this->reported_percent_() / 100.0f;
       this->tilt = this->position;
       this->publish_state();
     }
   }
+}
+
+// =====================================================================
+// Motor wiring polarity auto-detection (in1/in2 swapped at install)
+// =====================================================================
+// If a blind's in1/in2 wires are physically swapped, pressing "open" drives
+// the motor the wrong way (and vice versa) — the angle sensor still reports
+// the true physical position correctly (calibration only depends on the user
+// visually confirming closed/open, not on which jog button they used to get
+// there — see enter_calibration_()/capture_calibration_point_()), but every
+// command AFTER calibration would keep moving the wrong direction, since
+// MotorController::open()/close() assume a specific pin mapping.
+//
+// Detection works by comparing, over the whole calibration jog session,
+// which way the raw angle actually moved while "open" vs "close" was
+// commanded, against the direction implied by the two points the user just
+// confirmed (see detect_motor_polarity_()). This only needs ONE angle
+// source, tracked consistently for the session (see polarity_check_source_())
+// — the physical wiring fault is a property of the motor, not of whichever
+// sensor happens to be watching it.
+ActiveAngleSource JalouzeeBlinds::polarity_check_source_() const {
+  // Same priority as Controller::resolve_active_source()'s AUTO mode — but
+  // by availability only, not by is_calibrated(), since during calibration
+  // nothing is calibrated yet.
+  if (this->mpu_.has_mpu()) return ACTIVE_SOURCE_MPU6050;
+  if (this->hall_adc_.has_hall()) return ACTIVE_SOURCE_HALL;
+  if (this->hall_adc_.has_adc()) return ACTIVE_SOURCE_ADC;
+  return ACTIVE_SOURCE_NONE;
+}
+
+void JalouzeeBlinds::begin_polarity_check_segment_(MotorDirection direction) {
+  this->dir_check_direction_ = direction;
+  this->dir_check_raw_at_start_ = this->angle_cal_.read_raw(this->dir_check_source_);
+}
+
+// Closes out whatever direction segment is currently open (if any) and folds
+// its raw delta into the matching accumulator. Safe to call even if nothing
+// is open (e.g. calibration just started) — it's then a no-op.
+void JalouzeeBlinds::end_polarity_check_segment_() {
+  if (this->dir_check_direction_ == MOTOR_STOP || std::isnan(this->dir_check_raw_at_start_)) return;
+  float raw_now = this->angle_cal_.read_raw(this->dir_check_source_);
+  float delta = raw_now - this->dir_check_raw_at_start_;
+  if (this->dir_check_direction_ == MOTOR_OPENING) {
+    this->net_raw_while_opening_ += delta;
+  } else if (this->dir_check_direction_ == MOTOR_CLOSING) {
+    this->net_raw_while_closing_ += delta;
+  }
+  this->dir_check_direction_ = MOTOR_STOP;
+  this->dir_check_raw_at_start_ = NAN;
+}
+
+// Called once from finish_calibration_(), after try_finish_calibration() has
+// (possibly) accepted dir_check_source_'s closed/open points.
+void JalouzeeBlinds::detect_motor_polarity_() {
+  float closed, open;
+  switch (this->dir_check_source_) {
+    case ACTIVE_SOURCE_MPU6050:
+      closed = this->store_.mpu_closed;
+      open = this->store_.mpu_open;
+      break;
+    case ACTIVE_SOURCE_HALL:
+      closed = this->store_.hall_closed;
+      open = this->store_.hall_open;
+      break;
+    case ACTIVE_SOURCE_ADC:
+      closed = this->store_.adc_closed;
+      open = this->store_.adc_open;
+      break;
+    default:
+      return;
+  }
+  // NAN here means try_finish_calibration() rejected this source (not enough
+  // movement) — no reliable reference to judge direction against.
+  if (std::isnan(closed) || std::isnan(open) || open == closed) return;
+
+  // Percent-per-raw-unit for this source, matching Controller::raw_to_percent
+  // (but unclamped — the jog session routinely visits raw values outside the
+  // final [closed, open] window, e.g. before the closed point is captured).
+  const float scale = 100.0f / (open - closed);
+  const float pct_while_opening = this->net_raw_while_opening_ * scale;
+  const float pct_while_closing = this->net_raw_while_closing_ * scale;
+
+  // Ignore small/noisy nudges — a real wiring fault shows up as a large,
+  // unambiguous move in the wrong direction, not a few percent of jitter.
+  const float EVIDENCE_THRESHOLD_PCT = 5.0f;
+  bool mismatch = (pct_while_opening < -EVIDENCE_THRESHOLD_PCT) || (pct_while_closing > EVIDENCE_THRESHOLD_PCT);
+  if (!mismatch) return;
+
+  // TOGGLE, never set to an absolute value: once compensation is applied,
+  // future calibrations will (correctly) observe normal-looking correlation
+  // under the CURRENT setting, since MotorController is already correcting
+  // for it — computing an absolute "inverted" value from that evidence would
+  // undo a previously-applied fix on every subsequent calibration. A mismatch
+  // found under whatever the current setting is means that setting is wrong
+  // right now, so flip it; the absence of a mismatch means leave it alone.
+  bool new_inverted = !this->motor_.is_direction_inverted();
+  ESP_LOGW(TAG,
+           "Detected reversed motor wiring (open/close commands were moving the blind the "
+           "wrong way) -- compensating in software from now on (%s -> %s)",
+           this->motor_.is_direction_inverted() ? "inverted" : "normal", new_inverted ? "inverted" : "normal");
+  this->motor_.set_direction_inverted(new_inverted);
+  this->save_motor_polarity_();
 }
 
 // =====================================================================
@@ -577,6 +794,11 @@ void JalouzeeBlinds::clear_movement_in_progress_() {
     this->store_.movement_in_progress = false;
     this->save_to_flash_();
   }
+}
+
+void JalouzeeBlinds::save_motor_polarity_() {
+  MotorPolarityStore mp{this->motor_.is_direction_inverted()};
+  this->motor_polarity_pref_.save(&mp);
 }
 
 }  // namespace jalouzee_blinds

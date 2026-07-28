@@ -7,6 +7,7 @@
 #include "esphome/components/number/number.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "esphome/components/sensor/sensor.h"
 
 namespace esphome {
 namespace jalouzee_blinds {
@@ -71,11 +72,18 @@ class FaultTimeoutNumber : public number::Number {
 // in JalouzeeBlinds (general logic).
 class SubEntities {
  public:
-  void setup(JalouzeeBlinds *parent, const std::string &base_name, bool has_hall, bool has_adc, bool has_mpu,
-             const char *initial_angle_source, uint32_t initial_fault_timeout_s);
+  void setup(JalouzeeBlinds *parent, bool has_hall, bool has_adc, bool has_mpu, const char *initial_angle_source,
+             uint32_t initial_fault_timeout_s);
 
   void set_calibration_message(const std::string &msg) { this->calibration_text_sensor_->publish_state(msg); }
   const std::string &calibration_message_state() const { return this->calibration_text_sensor_->state; }
+
+  // Numeric mirror of cal_state_ (CalibrationState) — 0 = outside calibration
+  // (CAL_IDLE), 1 = waiting for "closed" (CAL_WAIT_CLOSED), 2 = waiting for
+  // "open" (CAL_WAIT_OPEN). Same information as the message text_sensor
+  // above, just as a plain number for automations/dashboards that would
+  // otherwise have to pattern-match the English message text.
+  void set_calibration_step(uint8_t step) { this->calibration_step_sensor_->publish_state(step); }
 
   void set_calibrated(bool calibrated) { this->calibrated_binary_sensor_->publish_state(calibrated); }
   void set_fault(bool active) { this->fault_binary_sensor_->publish_state(active); }
@@ -109,6 +117,7 @@ class SubEntities {
   AngleSourceSelect *angle_source_select_{nullptr};
   FaultTimeoutNumber *fault_timeout_number_{nullptr};
   text_sensor::TextSensor *calibration_text_sensor_{nullptr};
+  sensor::Sensor *calibration_step_sensor_{nullptr};
   binary_sensor::BinarySensor *calibrated_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *fault_binary_sensor_{nullptr};
   // Per-source diagnostics (nullptr if the source isn't configured).

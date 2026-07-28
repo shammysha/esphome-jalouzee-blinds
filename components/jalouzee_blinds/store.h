@@ -29,5 +29,17 @@ struct JalouzeeBlindsStore {
   float last_angle_percent;   // last known tilt angle, 0..100%
 } __attribute__((packed));
 
+// Detected motor wiring polarity (in1/in2 possibly swapped at installation —
+// see JalouzeeBlinds::detect_motor_polarity_()). Deliberately its own tiny
+// preference object, separate from JalouzeeBlindsStore above: adding a field
+// to JalouzeeBlindsStore changes its size, which invalidates ESPHome's flash
+// preference blob checksum and silently wipes ALL existing hall/adc/mpu
+// calibration on every already-deployed blind (see
+// JalouzeeBlinds::load_from_flash_()) — not an acceptable cost for a feature
+// this small.
+struct MotorPolarityStore {
+  bool inverted;
+} __attribute__((packed));
+
 }  // namespace jalouzee_blinds
 }  // namespace esphome

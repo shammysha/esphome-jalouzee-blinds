@@ -29,14 +29,12 @@ class MotorController {
 
   void open() {
     this->dir_ = MOTOR_OPENING;
-    this->in1_pin_->digital_write(true);
-    this->in2_pin_->digital_write(false);
+    this->write_pins_(!this->inverted_);
   }
 
   void close() {
     this->dir_ = MOTOR_CLOSING;
-    this->in1_pin_->digital_write(false);
-    this->in2_pin_->digital_write(true);
+    this->write_pins_(this->inverted_);
   }
 
   void stop() {
@@ -47,10 +45,24 @@ class MotorController {
 
   MotorDirection direction() const { return this->dir_; }
 
+  // Compensates for in1/in2 physically swapped at installation (pressing
+  // open/close moves the blind the wrong way) — see JalouzeeBlinds::
+  // detect_motor_polarity_(), which is the only writer. open()/close() keep
+  // their normal meaning for every caller; only the actual GPIO pattern
+  // underneath flips.
+  void set_direction_inverted(bool inverted) { this->inverted_ = inverted; }
+  bool is_direction_inverted() const { return this->inverted_; }
+
  protected:
+  void write_pins_(bool forward) {
+    this->in1_pin_->digital_write(forward);
+    this->in2_pin_->digital_write(!forward);
+  }
+
   GPIOPin *in1_pin_{nullptr};
   GPIOPin *in2_pin_{nullptr};
   MotorDirection dir_{MOTOR_STOP};
+  bool inverted_{false};
 };
 
 }  // namespace jalouzee_blinds

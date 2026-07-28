@@ -171,16 +171,23 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     # calibration_button_, cancel_calibration_button_, fault_reset_button_,
     # angle_source_select_, fault_timeout_number_, calibration_text_sensor_,
-    # calibrated_binary_sensor_ and fault_binary_sensor_ are created directly in
-    # C++ (register_sub_entities_) rather than via YAML platforms. Without this,
-    # CORE.platform_counts stays at 0/undersized for these domains, so
-    # USE_SELECT/USE_NUMBER (and the ESPHOME_ENTITY_*_COUNT StaticVector sizing)
-    # never get emitted, and register_select()/register_number() won't exist.
+    # calibration_step_sensor_, calibrated_binary_sensor_ and
+    # fault_binary_sensor_ are created directly in C++ (register_sub_entities_)
+    # rather than via YAML platforms. Without this, CORE.platform_counts stays
+    # at 0/undersized for these domains, so USE_SELECT/USE_NUMBER (and the
+    # ESPHOME_ENTITY_*_COUNT StaticVector sizing) never get emitted, and
+    # register_select()/register_number() won't exist.
     for _ in range(3):
         CORE.register_platform_component("button", None)
     CORE.register_platform_component("select", None)
     CORE.register_platform_component("number", None)
     CORE.register_platform_component("text_sensor", None)
+    # "sensor" is already used by the user's own YAML (e.g. the mpu6050
+    # platform) when angle is configured, but that only accounts for THAT
+    # sensor's slot — calibration_step_sensor_ is an extra one created here in
+    # C++, so it needs its own count bump same as text_sensor/select/number
+    # above.
+    CORE.register_platform_component("sensor", None)
     # 2 base sensors ("Calibrated", "Fault") + per-source calibration
     # diagnostics, created only for sources actually configured (see
     # SubEntities::setup): 1 extra for encoder (Hall or ADC — mutually
