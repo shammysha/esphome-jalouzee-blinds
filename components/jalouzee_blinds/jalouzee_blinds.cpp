@@ -41,14 +41,16 @@ static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — minimum angle change 
 // show real sensor noise moment-to-moment, and check_fault_() only cares
 // whether it's changing at all while the motor is on.
 //
-// reported_percent_() additionally snaps the two hard endpoints (0/100%),
-// but ONLY in the overshoot direction (below 0, or above 100) — unlike the
-// mid-travel 50% step, 0/100% are real mechanical hard stops, so a reading
-// beyond one of them can only be sensor noise/inertia after hitting the
-// stop, never a genuine intermediate position. A reading like 3% or 97% is
-// still real position information (the blind hasn't fully reached the stop
-// yet) and must NOT be snapped away — only 45-55% (no hard stop, genuine
-// ±5% mechanical slack either side) gets the full two-sided band.
+// reported_percent_() snaps all three fixed steps (0/50/100%) with the same
+// symmetric ±STEP_SNAP_BAND — including 0/100%, despite those being the
+// physical end stops. A one-sided (overshoot-only) band was tried there
+// first on the theory that anything short of a hard stop must still be real
+// position — didn't hold up in practice: this component has no end-limit
+// switches at all, "closed"/"open" are just wherever the two calibration
+// points were captured, so reaching them is exactly as approximate as
+// reaching 50% is, and a genuinely-closed blind kept resting at 3-4% in HA
+// (ugly, and not meaningfully different from why 50% needed the band in the
+// first place). Symmetric everywhere matches the actual hardware.
 //
 // First attempt (2026-07-27) snapped only current_percent_ inside loop(),
 // and only around the 50% step — found on real hardware to (a) leave
@@ -59,10 +61,11 @@ static const float FAULT_ANGLE_EPSILON = 0.5f;    // % — minimum angle change 
 // logic that decides whether the blind still needs to move. Second attempt
 // (still 2026-07-27) fixed both gaps but gated the wide tolerance on
 // "target is near one of the three fixed steps" rather than on which sensor
-// is active, and used a symmetric band at 0/100% — replaced by this version
-// per user feedback: the real criterion is sensor noise, not target
-// position, and only the 50% step has a genuine two-sided reason to be
-// treated as an ambiguous range.
+// is active — replaced by is_angle_source_noisy_() per user feedback: the
+// real criterion is sensor noise, not target position. Third attempt made
+// the 0/100% band one-sided (overshoot only) on the mechanical-hard-stop
+// theory above — reverted to symmetric (2026-09-11) once that theory failed
+// against real HA readings.
 static const float STEP_SNAP_BAND = 5.0f;  // % — noisy-source tolerance, everywhere
 // Tolerance when the active source is Hall (no noise problem) — a precise
 // arbitrary tilt-slider position is honored down to this resolution.
@@ -97,14 +100,13 @@ float JalouzeeBlinds::movement_epsilon_() const {
 
 float JalouzeeBlinds::reported_percent_() const {
   if (!this->is_angle_source_noisy_()) return this->current_percent_;
-  float pct = this->current_percent_;
-  if (fabsf(pct - 50.0f) <= STEP_SNAP_BAND) return 50.0f;
-  // 0/100% are real mechanical hard stops — only snap in the overshoot
-  // direction (past the stop), never toward it, since anything short of the
-  // stop is still genuine position, not noise. See the doc comment above.
-  if (pct <= 0.0f && pct >= -STEP_SNAP_BAND) return 0.0f;
-  if (pct >= 100.0f && pct <= 100.0f + STEP_SNAP_BAND) return 100.0f;
-  return pct;
+  // Symmetric ±STEP_SNAP_BAND around each fixed step — see the doc comment
+  // above for why 0/100% get the same treatment as 50% despite being the
+  // nominal end stops.
+  for (float step : FIXED_STEPS) {
+    if (fabsf(this->current_percent_ - step) <= STEP_SNAP_BAND) return step;
+  }
+  return this->current_percent_;
 }
 
 // =====================================================================
