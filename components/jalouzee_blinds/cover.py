@@ -2,24 +2,46 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import cover, sensor, adc
-from esphome.components.esp32 import add_idf_sdkconfig_option
+from esphome.components.esp32 import add_idf_sdkconfig_option, include_builtin_idf_component
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
 CODEOWNERS = ["@your-github-handle"]
-# 'adc' is auto-loaded (used internally to read the resistor on the motor
-# shaft via ESPHome's built-in ADC component, without having to declare a
-# separate 'sensor: platform: adc' platform in YAML)
-AUTO_LOAD = [
-    "sensor",
-    "adc",
-    "voltage_sampler",
-    "button",
-    "select",
-    "number",
-    "text_sensor",
-    "binary_sensor",
-]
+
+
+# 'adc'/'voltage_sampler' are only pulled in for configs that actually
+# configure the resistor-on-the-motor-shaft encoder (used internally to
+# read it via ESPHome's built-in ADC component, without having to declare a
+# separate 'sensor: platform: adc' platform in YAML). AUTO_LOAD is a
+# function (config -> list[str]), not a static list, precisely so this can
+# be per-device conditional -- ESPHome calls it with this device's own
+# already schema-validated config once that validation has run (see
+# AddDynamicAutoLoadsValidationStep in esphome/config.py).
+#
+# Confirmed 2026-09-18 against ESPHome 2026.9.0's actual source
+# (esphome/components/esp32/__init__.py): as of that release, "esp_adc" (the
+# real ESP-IDF component providing the ADC calibration headers) is in
+# DEFAULT_EXCLUDED_IDF_COMPONENTS by default, "only needed by adc
+# component" -- the *only* sanctioned way back in is
+# `include_builtin_idf_component("esp_adc")`, which the real `adc` platform
+# calls itself from its own to_code() (esphome/components/adc/sensor.py).
+# We never run that to_code() (we use adc::ADCSensor straight from C++, see
+# motor_sensor.cpp, bypassing the normal `sensor: platform: adc:` YAML
+# declaration entirely) -- so on a Hall-only device (e.g. an ESP32 board
+# with no 'adc' key under 'encoder' at all) unconditionally AUTO_LOADing
+# "adc" anyway used to just compile a component we never touch, harmlessly;
+# under 2026.9.0's exclusion it instead hard-fails ESP-IDF's build
+# (adc_sensor_esp32.cpp's own #include of esp_adc/adc_cali.h has no
+# provider). This isn't an ESPHome bug to work around -- "don't build what
+# isn't configured" is the deliberate, correct design norm here, and our own
+# AUTO_LOAD was simply too broad even before this release exposed it. See
+# to_code() below for the matching include_builtin_idf_component() call for
+# devices that DO configure ADC.
+def AUTO_LOAD(config):
+    loads = ["sensor", "button", "select", "number", "text_sensor", "binary_sensor"]
+    if CONF_ADC in config.get(CONF_ENCODER, {}):
+        loads += ["adc", "voltage_sampler"]
+    return loads
 
 jalouzee_blinds_ns = cg.esphome_ns.namespace("jalouzee_blinds")
 JalouzeeBlinds = jalouzee_blinds_ns.class_("JalouzeeBlinds", cover.Cover, cg.Component)
@@ -215,6 +237,13 @@ async def to_code(config):
             b = await cg.gpio_pin_expression(enc[CONF_B])
             cg.add(var.set_hall_encoder_pins(a, b))
         else:
+            if CORE.is_esp32:
+                # Re-enable ESP-IDF's ADC driver (excluded by default since
+                # 2026.9.0 -- see AUTO_LOAD's doc comment above) -- mirrors
+                # what esphome/components/adc/sensor.py does for a real
+                # 'sensor: platform: adc:' declaration, which we bypass by
+                # using adc::ADCSensor directly from C++.
+                include_builtin_idf_component("esp_adc")
             adc_pin = await cg.gpio_pin_expression(enc[CONF_ADC])
             cg.add(var.set_adc_pin(adc_pin))
 
