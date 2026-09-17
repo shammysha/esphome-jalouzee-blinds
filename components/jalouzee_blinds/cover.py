@@ -2,7 +2,11 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
 from esphome.components import cover, sensor, adc
-from esphome.components.esp32 import add_idf_sdkconfig_option, include_builtin_idf_component
+from esphome.components.esp32 import (
+    add_idf_sdkconfig_option,
+    include_builtin_idf_component,
+    request_bluetooth,
+)
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
@@ -258,6 +262,21 @@ async def to_code(config):
         # else: no net_key in YAML -- factory firmware, boots unprovisioned
         # and gets its NetKey later over BLE (see ble_relay.cpp's
         # provision_chr_uuid_ and docs/plans/vivid-noodling-gray.md).
+
+        # "bt" (the ESP-IDF Bluetooth stack) is in DEFAULT_EXCLUDED_IDF_COMPONENTS
+        # since ESPHome 2026.9.0 -- same category of exclusion as esp_adc
+        # above. request_bluetooth() is the sanctioned way back in (calls
+        # include_builtin_idf_component("bt") plus sets a few sdkconfig
+        # *defaults*, which our own explicit add_idf_sdkconfig_option calls
+        # below always take precedence over per esp32/__init__.py's own
+        # docstring) -- every other BLE-using component (esp32_ble,
+        # esp32_ble_tracker, ...) calls it too; we never did because
+        # ble_relay.cpp talks to NimBLE directly instead of going through
+        # ESPHome's own esp32_ble component. Confirmed missing 2026-09-18:
+        # without it, ble_relay.cpp's own #include <host/ble_gap.h> fails
+        # (host/ble_gap.h: No such file or directory) for the same structural
+        # reason adc_sensor.h did above.
+        request_bluetooth()
 
         # NimBLE host -- lighter-weight than Bluedroid, used directly (no
         # esp_ble_mesh, see ble_relay.h/.cpp and
