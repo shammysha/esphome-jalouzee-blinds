@@ -7,6 +7,11 @@ from esphome.components.esp32 import (
     include_builtin_idf_component,
     request_bluetooth,
 )
+
+try:
+    from esphome.components.esp32 import require_mbedtls_tls_extras
+except ImportError:  # ESPHome < 2026.10.0: AES-CCM was never trimmed, nothing to request
+    require_mbedtls_tls_extras = None
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
@@ -277,6 +282,16 @@ async def to_code(config):
         # (host/ble_gap.h: No such file or directory) for the same structural
         # reason adc_sensor.h did above.
         request_bluetooth()
+
+        # AES-CCM (ble_relay.cpp's mbedtls_ccm_* calls for packet encryption)
+        # is in ESPHome 2026.10.0's MBEDTLS_TLS_EXTRA_OPTIONS -- trimmed by
+        # default, even though it's plain crypto and not TLS-gated (the
+        # helper's own docstring says so). Without this, the link step fails
+        # with "undefined reference to mbedtls_ccm_*" (confirmed 2026-10-22 on
+        # jalouzee-kitchen-left). Only CCM is requested, not the other extras
+        # (static RSA/ECDH, session tickets, ...), which we don't use.
+        if require_mbedtls_tls_extras is not None:
+            require_mbedtls_tls_extras(("CONFIG_MBEDTLS_CCM_C",))
 
         # NimBLE host -- lighter-weight than Bluedroid, used directly (no
         # esp_ble_mesh, see ble_relay.h/.cpp and
